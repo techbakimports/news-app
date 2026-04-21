@@ -1,0 +1,7 @@
+feedparser
+google-generativeai
+edge-tts
+beautifulsoup4
+requests
+python-dotenv
+aiofiles
