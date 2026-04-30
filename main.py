@@ -6,7 +6,8 @@ from datetime import datetime, timedelta
 from fetcher import fetch_latest_news, extract_article_content
 from summarizer import summarize_news
 from audio import generate_audio
-from config import DRIVE_SYNC_DIR, AUDIO_OUTPUT_DIR
+from video import generate_video
+from config import DRIVE_SYNC_DIR, AUDIO_OUTPUT_DIR, CHANNEL_NAME
 
 # Configuração de Limpeza (apagar arquivos mais antigos que X horas)
 CLEANUP_HOURS = 24
@@ -67,9 +68,11 @@ async def run_news_cycle():
         await asyncio.sleep(2)
 
         if summary:
+            item["ai_summary"] = summary
             consolidated_script += f"{summary}\n\n"
             total_words += len(summary.split())
         else:
+            item["ai_summary"] = None
             consolidated_script += f"{item['title']} — Fonte: {item['source']}\n\n"
             total_words += len(item['title'].split()) + 2
         
@@ -91,8 +94,18 @@ async def run_news_cycle():
     shutil.copy2(audio_path, drive_audio_path)
     print(f"Áudio copiado para o Drive: {drive_audio_path}")
 
+    # 8. Gerar vídeo dinâmico
+    video_path = await asyncio.to_thread(
+        generate_video,
+        items_to_process,
+        audio_path,
+        CHANNEL_NAME,
+        f"{filename_base}.mp4",
+    )
+
     print(f"\n--- Ciclo Finalizado! ---")
     print(f"Áudio local: {audio_path}")
+    print(f"Vídeo local: {video_path}")
     print(f"Áudio no Drive: {drive_audio_path}")
     print(f"Roteiro no Drive: {md_path}")
 

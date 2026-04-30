@@ -29,4 +29,8 @@ AUDIO_OUTPUT_DIR = "./audio_news"
 
 # Configurações de Output para NotebookLM (Google Drive)
 # Se você tiver o Google Drive para Desktop, mude este caminho para sua pasta do Drive
-DRIVE_SYNC_DIR = r"J:\Meu Drive\News-app" 
+DRIVE_SYNC_DIR = r"J:\Meu Drive\News-app"
+
+# Configurações de Vídeo
+VIDEO_OUTPUT_DIR = "./video_news"
+CHANNEL_NAME = "NewsApp Brasil"  # Nome exibido no canto superior direito do vídeo
