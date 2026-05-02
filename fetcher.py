@@ -1,3 +1,4 @@
+import re
 import feedparser
 import requests
 from bs4 import BeautifulSoup
@@ -88,8 +89,54 @@ def extract_article_content(url):
         print(f"Erro ao extrair conteúdo de {url}: {e}")
         return ""
 
+_STOPWORDS_PT = {
+    'a', 'ao', 'aos', 'as', 'com', 'da', 'das', 'de', 'do', 'dos',
+    'e', 'em', 'na', 'nas', 'no', 'nos', 'o', 'os', 'ou', 'para',
+    'por', 'que', 'se', 'um', 'uma',
+}
+
+
+def _normalize_title(title):
+    words = re.sub(r'[^\w\s]', '', title.lower()).split()
+    return {w for w in words if w not in _STOPWORDS_PT and len(w) > 2}
+
+
+def _is_similar(title_a, title_b, threshold=0.5):
+    wa, wb = _normalize_title(title_a), _normalize_title(title_b)
+    if not wa or not wb:
+        return False
+    return len(wa & wb) / min(len(wa), len(wb)) >= threshold
+
+
+def select_unique_news(raw_news):
+    """
+    A partir de múltiplos candidatos por (categoria, fonte), seleciona
+    no máximo um item por par, garantindo que a mesma história não se
+    repita entre fontes dentro da mesma categoria.
+    """
+    pools = {}
+    for item in raw_news:
+        pools.setdefault((item['category'], item['source']), []).append(item)
+
+    selected = []
+    seen_per_category = {}
+
+    for (category, site), candidates in pools.items():
+        seen = seen_per_category.setdefault(category, [])
+        for candidate in candidates:
+            if not any(_is_similar(candidate['title'], t) for t in seen):
+                selected.append(candidate)
+                seen.append(candidate['title'])
+                print(f"  [OK] {category}|{site}: {candidate['title'][:55]}")
+                break
+            else:
+                print(f"  [~] Dup {category}|{site}: {candidate['title'][:55]}")
+
+    return selected
+
+
 if __name__ == "__main__":
-    news = fetch_latest_news(limit=1)
+    news = fetch_latest_news(limit=3)
     for item in news:
         print(f"\n--- {item['source']} ---")
         print(f"Título: {item['title']}")

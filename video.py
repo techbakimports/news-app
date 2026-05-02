@@ -215,11 +215,13 @@ def _make_segment_clip(news_item, duration, channel_name):
     return VideoClip(make_frame, duration=duration).set_fps(FPS)
 
 
-def generate_video(news_items, audio_path, channel_name="NewsApp Brasil", output_filename=None):
+def generate_video(news_items, audio_path, channel_name="NewsApp Brasil", output_filename=None, segment_durations=None):
     """
     Gera um vídeo dinâmico a partir das notícias e do áudio consolidado.
     Cada notícia recebe uma imagem do Pexels e uma waveform animada.
     Retorna o caminho do vídeo gerado.
+    Se segment_durations for fornecido (duração real medida por segmento),
+    usa esses valores; caso contrário, estima proporcionalmente por contagem de palavras.
     """
     if not os.path.exists(VIDEO_OUTPUT_DIR):
         os.makedirs(VIDEO_OUTPUT_DIR)
@@ -235,11 +237,15 @@ def generate_video(news_items, audio_path, channel_name="NewsApp Brasil", output
     total_duration = audio.duration
     print(f"Duração total: {total_duration:.1f}s ({total_duration / 60:.1f} min)")
 
-    # Distribute duration proportionally by summary word count
-    summaries = [item.get("ai_summary") or item.get("summary") or item["title"] for item in news_items]
-    word_counts = [max(1, len(s.split())) for s in summaries]
-    total_words = sum(word_counts)
-    durations = [max(5.0, total_duration * (wc / total_words)) for wc in word_counts]
+    # Usa durações reais medidas por segmento (sync exato) ou estima por palavras
+    if segment_durations and len(segment_durations) == len(news_items):
+        durations = [max(5.0, d) for d in segment_durations]
+        print(f"Durações por segmento (reais): {[f'{d:.1f}s' for d in durations]}")
+    else:
+        summaries = [item.get("ai_summary") or item.get("summary") or item["title"] for item in news_items]
+        word_counts = [max(1, len(s.split())) for s in summaries]
+        total_words = sum(word_counts)
+        durations = [max(5.0, total_duration * (wc / total_words)) for wc in word_counts]
 
     print(f"\nGerando {len(news_items)} segmento(s)...")
     clips = []

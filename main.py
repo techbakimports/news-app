@@ -3,9 +3,9 @@ import os
 import shutil
 import time
 from datetime import datetime, timedelta
-from fetcher import fetch_latest_news, extract_article_content
+from fetcher import fetch_latest_news, extract_article_content, select_unique_news
 from summarizer import summarize_news
-from audio import generate_audio
+from audio import generate_audio_segments
 from video import generate_video
 from config import DRIVE_SYNC_DIR, AUDIO_OUTPUT_DIR, CHANNEL_NAME
 
@@ -32,36 +32,33 @@ async def run_news_cycle():
     print(f"--- Iniciando Ciclo Consolidado: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')} ---")
     cleanup_old_files()
 
-    # 1. Buscar notícias
-    raw_news = fetch_latest_news(limit=1) 
-    
-    processed_links = set()
-    consolidated_script = "Bem-vindo ao seu resumo de notícias automatizado.\n\n"
-    total_words = 0
-    max_words = 2200 # Aproximadamente 15 minutos de áudio
-    
-    items_to_process = []
-    
-    # Deduplicação e filtragem
-    for item in raw_news:
-        if item['link'] not in processed_links:
-            processed_links.add(item['link'])
-            items_to_process.append(item)
+    # 1. Buscar notícias (3 candidatos por fonte/categoria para permitir dedup por título)
+    raw_news = fetch_latest_news(limit=3)
 
-    print(f"Total de notícias únicas encontradas: {len(items_to_process)}")
+    # Deduplicação por similaridade de título — evita repetir a mesma história
+    # em duas fontes diferentes da mesma categoria
+    print("\nSelecionando notícias únicas por categoria/fonte...")
+    items_to_process = select_unique_news(raw_news)
+
+    consolidated_script = ""
+    total_words = 0
+    max_words = 2200  # Aproximadamente 15 minutos de áudio
+
+    print(f"\nTotal de notícias únicas selecionadas: {len(items_to_process)}")
 
     if not os.path.exists(DRIVE_SYNC_DIR): os.makedirs(DRIVE_SYNC_DIR)
 
+    processed_items = []
     for item in items_to_process:
         if total_words > max_words:
             print("Limite de 15 minutos atingido. Parando por aqui.")
             break
 
         print(f"\nProcessando {item['category']}: {item['title']}")
-        
+
         content = extract_article_content(item['link'])
         if not content: content = item['summary']
-            
+
         summary = summarize_news(item['category'], item['title'], content)
 
         # Plano gratuito Gemini: 5 req/min → mínimo 12s; 15s dá margem segura
@@ -75,32 +72,51 @@ async def run_news_cycle():
             item["ai_summary"] = None
             consolidated_script += f"{item['title']} — Fonte: {item['source']}\n\n"
             total_words += len(item['title'].split()) + 2
+
+        processed_items.append(item)
+
+    items_to_process = processed_items
         
-    # 5. Salvar Texto Único para NotebookLM
+    # 5. Salvar Texto para NotebookLM
     timestamp = datetime.now().strftime('%Y%m%d_%H%M')
     filename_base = f"Resumo_Completo_{timestamp}"
-    
+
     md_path = os.path.join(DRIVE_SYNC_DIR, f"{filename_base}.md")
     with open(md_path, "w", encoding="utf-8") as f:
         f.write(f"# Resumo de Notícias - {datetime.now().strftime('%d/%m/%Y')}\n\n")
         f.write(consolidated_script)
-            
-    # 6. Gerar Áudio Único
-    print("\nGerando áudio consolidado (isso pode demorar um pouco)...")
-    audio_path = await generate_audio(consolidated_script, f"{filename_base}.mp3")
+
+    # 6. Gerar áudio por segmento (duração exata para sync do vídeo)
+    # O primeiro segmento é a vinheta de abertura; os demais são as notícias.
+    intro_text = "Bem-vindo ao seu resumo de notícias automatizado."
+    segment_texts = [intro_text] + [
+        item.get("ai_summary") or f"{item['title']} — Fonte: {item['source']}"
+        for item in items_to_process
+    ]
+
+    print("\nGerando áudio por segmento (isso pode demorar um pouco)...")
+    audio_path, all_durations = await generate_audio_segments(
+        segment_texts, AUDIO_OUTPUT_DIR, filename_base
+    )
+
+    # Absorve a duração da vinheta no primeiro slide da notícia
+    news_durations = list(all_durations[1:])
+    if news_durations:
+        news_durations[0] += all_durations[0]
 
     # 7. Copiar áudio para o Google Drive
     drive_audio_path = os.path.join(DRIVE_SYNC_DIR, f"{filename_base}.mp3")
     shutil.copy2(audio_path, drive_audio_path)
     print(f"Áudio copiado para o Drive: {drive_audio_path}")
 
-    # 8. Gerar vídeo dinâmico
+    # 8. Gerar vídeo dinâmico com durações reais por segmento
     video_path = await asyncio.to_thread(
         generate_video,
         items_to_process,
         audio_path,
         CHANNEL_NAME,
         f"{filename_base}.mp4",
+        news_durations,
     )
 
     print(f"\n--- Ciclo Finalizado! ---")

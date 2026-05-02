@@ -47,30 +47,65 @@ def _split_text(text, max_chars=2000):
     return chunks
 
 
+async def _stream_to_bytes(text):
+    """Converte texto em bytes de áudio via edge-tts, em chunks se necessário."""
+    data = bytearray()
+    for chunk in _split_text(clean_text(text), max_chars=2000):
+        communicate = edge_tts.Communicate(chunk, TTS_VOICE)
+        async for c in communicate.stream():
+            if c["type"] == "audio":
+                data.extend(c["data"])
+    return bytes(data)
+
+
 async def generate_audio(text, filename):
     """Gera áudio a partir do texto usando edge-tts, suportando textos longos."""
     if not os.path.exists(AUDIO_OUTPUT_DIR):
         os.makedirs(AUDIO_OUTPUT_DIR)
 
     output_path = os.path.join(AUDIO_OUTPUT_DIR, filename)
-    clean = clean_text(text)
-    chunks = _split_text(clean, max_chars=2000)
-
-    print(f"Gerando áudio em {len(chunks)} parte(s)...")
-
-    audio_data = bytearray()
-    for i, chunk in enumerate(chunks, 1):
-        print(f"  Processando parte {i}/{len(chunks)}...")
-        communicate = edge_tts.Communicate(chunk, TTS_VOICE)
-        async for audio_chunk in communicate.stream():
-            if audio_chunk["type"] == "audio":
-                audio_data.extend(audio_chunk["data"])
-
+    data = await _stream_to_bytes(text)
     with open(output_path, "wb") as f:
-        f.write(audio_data)
-
-    print(f"Áudio salvo: {output_path} ({len(audio_data) / 1024:.0f} KB)")
+        f.write(data)
+    print(f"Áudio salvo: {output_path} ({len(data) / 1024:.0f} KB)")
     return output_path
+
+
+async def generate_audio_segments(segment_texts, output_dir, filename_base):
+    """
+    Gera um MP3 por segmento de texto, mede a duração exata de cada um via
+    AudioFileClip e concatena tudo em um único arquivo final.
+    Retorna (caminho_final, [durações_em_segundos]).
+    """
+    from moviepy.editor import AudioFileClip, concatenate_audioclips
+
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
+    segment_paths = []
+    for i, text in enumerate(segment_texts):
+        seg_path = os.path.join(output_dir, f"_seg{i}_{filename_base}.mp3")
+        print(f"  Gerando segmento {i + 1}/{len(segment_texts)}...")
+        data = await _stream_to_bytes(text)
+        with open(seg_path, "wb") as f:
+            f.write(data)
+        segment_paths.append(seg_path)
+
+    clips = [AudioFileClip(p) for p in segment_paths]
+    durations = [c.duration for c in clips]
+
+    combined_path = os.path.join(output_dir, f"{filename_base}.mp3")
+    combined_clip = concatenate_audioclips(clips)
+    combined_clip.write_audiofile(combined_path, verbose=False, progress_bar=False)
+    combined_clip.close()
+    for c in clips:
+        c.close()
+    for p in segment_paths:
+        os.remove(p)
+
+    total = sum(durations)
+    print(f"Áudio final: {combined_path} ({total:.1f}s / {total / 60:.1f} min)")
+    return combined_path, durations
 
 
 if __name__ == "__main__":
