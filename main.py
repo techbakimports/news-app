@@ -64,8 +64,8 @@ async def run_news_cycle():
             
         summary = summarize_news(item['category'], item['title'], content)
 
-        # Pequena pausa para evitar erro de limite da API (Quota)
-        await asyncio.sleep(2)
+        # Plano gratuito Gemini: 5 req/min → mínimo 12s; 15s dá margem segura
+        await asyncio.sleep(15)
 
         if summary:
             item["ai_summary"] = summary
