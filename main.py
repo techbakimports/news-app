@@ -4,7 +4,7 @@ import shutil
 import time
 from datetime import datetime, timedelta
 from fetcher import fetch_latest_news, extract_article_content, select_unique_news
-from summarizer import summarize_news
+from summarizer import summarize_news_batch
 from audio import generate_audio_segments
 from video import generate_video
 from config import DRIVE_SYNC_DIR, AUDIO_OUTPUT_DIR, CHANNEL_NAME
@@ -48,32 +48,50 @@ async def run_news_cycle():
 
     if not os.path.exists(DRIVE_SYNC_DIR): os.makedirs(DRIVE_SYNC_DIR)
 
-    processed_items = []
+    # Fase 1: extração de conteúdo (sem custo de API)
+    print("\nExtraindo conteúdo dos artigos...")
     for item in items_to_process:
+        content = extract_article_content(item['link'])
+        item['_content'] = content if content else item.get('summary', '')
+
+    # Fase 2: resumos em lotes — 5 notícias por chamada Gemini
+    # Plano gratuito: 20 req/dia e 5 req/min.
+    # Com BATCH_SIZE=5: máx. 4 chamadas/dia para 20 itens. Sleep de 15s entre lotes.
+    BATCH_SIZE = 5
+    processed_items = []
+    total_batches = (len(items_to_process) + BATCH_SIZE - 1) // BATCH_SIZE
+    print(f"\nGerando resumos em {total_batches} lote(s) de até {BATCH_SIZE} notícias...")
+
+    for batch_idx, batch_start in enumerate(range(0, len(items_to_process), BATCH_SIZE)):
         if total_words > max_words:
             print("Limite de 15 minutos atingido. Parando por aqui.")
             break
 
-        print(f"\nProcessando {item['category']}: {item['title']}")
+        batch = items_to_process[batch_start:batch_start + BATCH_SIZE]
+        batch_input = [
+            {'category': i['category'], 'title': i['title'], 'content': i['_content']}
+            for i in batch
+        ]
 
-        content = extract_article_content(item['link'])
-        if not content: content = item['summary']
+        print(f"\n[Lote {batch_idx + 1}/{total_batches}] {len(batch)} notícias...")
+        summaries = summarize_news_batch(batch_input)
 
-        summary = summarize_news(item['category'], item['title'], content)
+        for item, summary in zip(batch, summaries):
+            if total_words > max_words:
+                break
+            if summary:
+                item['ai_summary'] = summary
+                consolidated_script += f"{summary}\n\n"
+                total_words += len(summary.split())
+            else:
+                item['ai_summary'] = None
+                consolidated_script += f"{item['title']} — Fonte: {item['source']}\n\n"
+                total_words += len(item['title'].split()) + 2
+            processed_items.append(item)
 
-        # Plano gratuito Gemini: 5 req/min → mínimo 12s; 15s dá margem segura
-        await asyncio.sleep(15)
-
-        if summary:
-            item["ai_summary"] = summary
-            consolidated_script += f"{summary}\n\n"
-            total_words += len(summary.split())
-        else:
-            item["ai_summary"] = None
-            consolidated_script += f"{item['title']} — Fonte: {item['source']}\n\n"
-            total_words += len(item['title'].split()) + 2
-
-        processed_items.append(item)
+        # Sleep entre lotes (não após o último)
+        if batch_start + BATCH_SIZE < len(items_to_process) and total_words <= max_words:
+            await asyncio.sleep(15)
 
     items_to_process = processed_items
         
