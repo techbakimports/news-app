@@ -7,7 +7,14 @@ from fetcher import fetch_latest_news, extract_article_content, select_unique_ne
 from summarizer import summarize_news_batch
 from audio import generate_audio_segments
 from video import generate_video
+from uploader import upload_video, build_description
 from config import DRIVE_SYNC_DIR, AUDIO_OUTPUT_DIR, CHANNEL_NAME
+
+# Define True para publicar no YouTube após gerar o vídeo.
+# Na primeira execução abrirá o browser para autorização OAuth.
+YOUTUBE_UPLOAD = True
+YOUTUBE_PUBLISH_HOUR = 5   # hora local em que o vídeo será publicado
+YOUTUBE_PRIVACY = "private"  # mantido como "private" até publishAt — torna público às 5h automaticamente
 
 # Configuração de Limpeza (apagar arquivos mais antigos que X horas)
 CLEANUP_HOURS = 24
@@ -117,10 +124,9 @@ async def run_news_cycle():
         segment_texts, AUDIO_OUTPUT_DIR, filename_base
     )
 
-    # Absorve a duração da vinheta no primeiro slide da notícia
+    # Vinheta de abertura → slide separado; cada notícia fica exatamente com sua duração real
+    intro_duration = all_durations[0]
     news_durations = list(all_durations[1:])
-    if news_durations:
-        news_durations[0] += all_durations[0]
 
     # 7. Copiar áudio para o Google Drive
     drive_audio_path = os.path.join(DRIVE_SYNC_DIR, f"{filename_base}.mp3")
@@ -135,6 +141,7 @@ async def run_news_cycle():
         CHANNEL_NAME,
         f"{filename_base}.mp4",
         news_durations,
+        intro_duration,
     )
 
     print(f"\n--- Ciclo Finalizado! ---")
@@ -142,6 +149,29 @@ async def run_news_cycle():
     print(f"Vídeo local: {video_path}")
     print(f"Áudio no Drive: {drive_audio_path}")
     print(f"Roteiro no Drive: {md_path}")
+
+    # 9. Upload para o YouTube
+    if YOUTUBE_UPLOAD:
+        date_str = datetime.now().strftime("%d/%m/%Y")
+        yt_title = f"Resumo de Notícias — {date_str}"
+        yt_description = build_description(items_to_process, date_str)
+        yt_tags = ["notícias", "brasil", "resumo", "jornalismo", "atualidades"]
+
+        try:
+            video_id = await asyncio.to_thread(
+                upload_video,
+                video_path,
+                yt_title,
+                yt_description,
+                yt_tags,
+                YOUTUBE_PUBLISH_HOUR,
+                YOUTUBE_PRIVACY,
+            )
+            print(f"YouTube: https://youtu.be/{video_id}")
+        except FileNotFoundError as e:
+            print(f"\nUpload ignorado: {e}")
+        except Exception as e:
+            print(f"\nErro no upload YouTube: {e}")
 
 if __name__ == "__main__":
     asyncio.run(run_news_cycle())

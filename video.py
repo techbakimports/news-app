@@ -154,6 +154,42 @@ def _alpha_composite(bg, overlay):
     return result.astype(np.uint8)
 
 
+def _make_intro_clip(channel_name, duration):
+    """Slide de abertura com nome do canal — exibido durante o áudio da vinheta."""
+    bg_arr = np.full((VIDEO_H, VIDEO_W, 3), (12, 16, 30), dtype=np.uint8)
+
+    overlay = Image.new("RGBA", (VIDEO_W, VIDEO_H), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+
+    f_channel = _get_font(68, bold=True)
+    f_sub = _get_font(26)
+
+    ch_bbox = draw.textbbox((0, 0), channel_name, font=f_channel)
+    cx = (VIDEO_W - ch_bbox[2]) // 2
+    cy = VIDEO_H // 2 - ch_bbox[3] // 2 - 20
+
+    draw.text((cx + 2, cy + 2), channel_name, font=f_channel, fill=(0, 0, 0, 160))
+    draw.text((cx, cy), channel_name, font=f_channel, fill=(255, 255, 255, 255))
+
+    date_str = datetime.now().strftime("%d/%m/%Y")
+    d_bbox = draw.textbbox((0, 0), date_str, font=f_sub)
+    dx = (VIDEO_W - d_bbox[2]) // 2
+    draw.text((dx, cy + ch_bbox[3] + 16), date_str, font=f_sub, fill=(180, 180, 180, 200))
+
+    base = _alpha_composite(bg_arr, np.array(overlay))
+    n_frames = int(math.ceil(duration * FPS))
+
+    def make_frame(t):
+        frame = base.copy()
+        img = Image.fromarray(frame)
+        draw2 = ImageDraw.Draw(img)
+        progress = t / duration
+        draw2.rectangle([(0, VIDEO_H - 5), (int(VIDEO_W * progress), VIDEO_H)], fill=(80, 120, 220))
+        return np.array(img)
+
+    return VideoClip(make_frame, duration=duration).set_fps(FPS)
+
+
 def _gen_waveform(n_frames, bar_count=60):
     base = np.random.rand(bar_count) * 0.35 + 0.25
     base[0] = base[1] = base[-1] = base[-2] = 0.08
@@ -215,7 +251,7 @@ def _make_segment_clip(news_item, duration, channel_name):
     return VideoClip(make_frame, duration=duration).set_fps(FPS)
 
 
-def generate_video(news_items, audio_path, channel_name="NewsApp Brasil", output_filename=None, segment_durations=None):
+def generate_video(news_items, audio_path, channel_name="NewsApp Brasil", output_filename=None, segment_durations=None, intro_duration=0.0):
     """
     Gera um vídeo dinâmico a partir das notícias e do áudio consolidado.
     Cada notícia recebe uma imagem do Pexels e uma waveform animada.
@@ -249,10 +285,15 @@ def generate_video(news_items, audio_path, channel_name="NewsApp Brasil", output
 
     print(f"\nGerando {len(news_items)} segmento(s)...")
     clips = []
+
+    if intro_duration > 0:
+        print(f"  Slide de abertura: {intro_duration:.1f}s")
+        clips.append(_make_intro_clip(channel_name, intro_duration).fadein(0.5))
+
     for i, (item, dur) in enumerate(zip(news_items, durations), 1):
         print(f"\n[{i}/{len(news_items)}] {item.get('category', '')} — {item['title'][:60]}")
         clip = _make_segment_clip(item, dur, channel_name)
-        if i == 1:
+        if i == 1 and intro_duration <= 0:
             clip = clip.fadein(0.5)
         if i == len(news_items):
             clip = clip.fadeout(0.8)
