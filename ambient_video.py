@@ -17,6 +17,10 @@ from video import _search_pexels  # fallback de fotos
 
 load_dotenv()
 
+if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
+
 AMBIENT_OUTPUT_DIR = "./ambient_videos"
 LOOP_AUDIO_SECONDS = 180   # 3 min de áudio base (loopado pelo ffmpeg)
 VIDEO_W, VIDEO_H = 1280, 720
@@ -143,10 +147,36 @@ def _foto_para_video(query: str, dest_path: str) -> bool:
             os.remove(tmp_photo)
 
 
+def _normalizar_para_1280x720(src: str, dest: str) -> bool:
+    """Re-encoda o clipe para exatamente 1280×720 landscape, sem barras pretas e sem metadado de rotação."""
+    cmd = [
+        "ffmpeg", "-y", "-i", src,
+        "-vf", f"scale={VIDEO_W}:{VIDEO_H}:force_original_aspect_ratio=increase,crop={VIDEO_W}:{VIDEO_H}",
+        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+        "-pix_fmt", "yuv420p", "-an",
+        "-map_metadata", "-1",   # remove rotation tags que causam exibição portrait
+        dest,
+    ]
+    try:
+        subprocess.run(cmd, check=True, capture_output=True)
+        return True
+    except subprocess.CalledProcessError:
+        return False
+
+
 def _obter_clip_visual(query: str, dest_path: str) -> bool:
     """Tenta vídeo real → foto slow zoom → fundo preto."""
-    if _baixar_video_pexels(query, dest_path):
-        return True
+    raw_path = dest_path.replace(".mp4", "_raw.mp4")
+    if _baixar_video_pexels(query, raw_path):
+        print("  Normalizando para 1280×720...", end=" ", flush=True)
+        ok = _normalizar_para_1280x720(raw_path, dest_path)
+        try:
+            os.remove(raw_path)
+        except Exception:
+            pass
+        if ok:
+            print("OK")
+            return True
     print("  Vídeo indisponível, tentando foto com slow zoom...")
     return _foto_para_video(query, dest_path)
 
@@ -256,7 +286,7 @@ def generate_ambient_video(
     # 4. Upload YouTube
     if upload:
         from uploader import upload_video
-        hours_label = f"{int(hours)}h" if hours == int(hours) else f"{hours}h"
+        hours_label = f"{int(hours)}h" if hours == int(hours) else f"{round(hours * 60)}min"
         yt_title = cfg["yt_title"].format(hours=hours_label)
         yt_desc = (
             f"{cfg['yt_desc']}\n\n"

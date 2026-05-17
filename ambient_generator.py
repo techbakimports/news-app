@@ -2,6 +2,7 @@
 Gera áudio ambiente loopável (chuva, mar, lareira, floresta, ruídos).
 Usa numpy + scipy para síntese por filtros — sem dependências de assets externos.
 """
+import os
 import numpy as np
 from scipy.io import wavfile
 from scipy.signal import butter, sosfilt
@@ -43,13 +44,32 @@ def _crossfade_loop(audio):
 
 def _rain(duration_s):
     n = int(SAMPLE_RATE * duration_s)
-    noise = np.random.randn(n)
-    rain = sosfilt(_bandpass(600, 8000), noise)
+    rng = np.random.default_rng()
+    rain = np.zeros(n, dtype=np.float64)
+
+    # Chuva = sobreposição de centenas de impactos por segundo.
+    # O som contínuo "shhhh" emerge da soma — sem ruído de base separado.
+    n_drops = int(duration_s * 500)
+    positions = rng.integers(0, n, n_drops)
+    # Distribuição log-normal: maioria de gotas pequenas, poucas grandes
+    sizes = np.clip(rng.lognormal(mean=-0.3, sigma=0.7, size=n_drops), 0.08, 3.0)
+
+    for pos, size in zip(positions, sizes):
+        # Gotas maiores = duração maior, mais graves, mais amplitude
+        length = min(int(SAMPLE_RATE * 0.05 * size), n - pos)
+        if length < 10:
+            continue
+        t_d = np.linspace(0, 1, length)
+        # Decaimento convexo (mais natural que exponencial puro)
+        env = (1.0 - t_d) ** (2.5 / size)
+        rain[pos:pos + length] += rng.standard_normal(length) * env * size
+
+    # Faixa real da chuva em superfícies: 250–1800 Hz
+    # Nada acima de 1800 Hz — essa faixa é o chiado de estática
+    rain = sosfilt(_bandpass(250, 1800), rain)
 
     t = np.linspace(0, duration_s, n)
-    # variação lenta de intensidade (vento)
-    envelope = 1.0 + 0.30 * np.sin(2 * np.pi * 0.05 * t) \
-                   + 0.15 * np.sin(2 * np.pi * 0.13 * t)
+    envelope = 1.0 + 0.18 * np.sin(2 * np.pi * 0.05 * t)
     return _normalize(rain * envelope)
 
 
@@ -120,6 +140,35 @@ _GENERATORS = {
 }
 
 
+ASSETS_DIR = os.path.join(os.path.dirname(__file__), "assets", "audio")
+
+
+def _load_asset(sound_type: str, output_path: str, loop_duration_s: int) -> bool:
+    """
+    Se existir assets/audio/<tipo>.wav ou .mp3, usa como base do loop
+    (corta ou repete para atingir loop_duration_s).
+    Retorna True se usou o asset, False se deve usar síntese.
+    """
+    import subprocess
+    for ext in ("wav", "mp3"):
+        asset = os.path.join(ASSETS_DIR, f"{sound_type}.{ext}")
+        if os.path.exists(asset):
+            print(f"  Usando arquivo real: {asset}")
+            cmd = [
+                "ffmpeg", "-y",
+                "-stream_loop", "-1", "-i", asset,
+                "-t", str(loop_duration_s),
+                "-ar", str(SAMPLE_RATE), "-ac", "2",
+                output_path,
+            ]
+            try:
+                subprocess.run(cmd, check=True, capture_output=True)
+                return True
+            except subprocess.CalledProcessError:
+                print("  Falha ao processar asset, caindo para síntese.")
+    return False
+
+
 def generate_ambient_audio(sound_type: str, output_path: str, loop_duration_s: int = 180) -> str:
     """
     Gera um arquivo WAV loopável de `loop_duration_s` segundos.
@@ -132,6 +181,11 @@ def generate_ambient_audio(sound_type: str, output_path: str, loop_duration_s: i
     """
     if sound_type not in _GENERATORS:
         raise ValueError(f"Tipo '{sound_type}' inválido. Use: {SOUND_TYPES}")
+
+    # Usa arquivo real de assets/audio/<tipo>.wav|mp3 se disponível
+    if _load_asset(sound_type, output_path, loop_duration_s):
+        print(f"  OK — {loop_duration_s}s, salvo em {output_path}")
+        return output_path
 
     print(f"  Sintetizando '{sound_type}' ({loop_duration_s}s)...", end=" ", flush=True)
     audio = _GENERATORS[sound_type](loop_duration_s)
