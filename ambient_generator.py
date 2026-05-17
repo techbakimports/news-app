@@ -1,8 +1,10 @@
 """
 Gera áudio ambiente loopável (chuva, mar, lareira, floresta, ruídos).
-Usa numpy + scipy para síntese por filtros — sem dependências de assets externos.
+Prioridade: assets/audio/<tipo>.wav|mp3|ogg → download CC0 automático → síntese scipy.
 """
 import os
+import shutil
+import urllib.request
 import numpy as np
 from scipy.io import wavfile
 from scipy.signal import butter, sosfilt
@@ -142,18 +144,76 @@ _GENERATORS = {
 
 ASSETS_DIR = os.path.join(os.path.dirname(__file__), "assets", "audio")
 
+# Arquivos CC0 do Wikimedia Commons — baixados automaticamente na primeira execução
+_ASSET_URLS: dict[str, list[str]] = {
+    "rain": [
+        "https://upload.wikimedia.org/wikipedia/commons/c/cb/Heavy_rain_in_Glenshaw%2C_PA.ogg",
+        "https://upload.wikimedia.org/wikipedia/commons/0/09/Rain_thunder_steps.ogg",
+        "https://upload.wikimedia.org/wikipedia/commons/4/42/Rain_and_thunder.ogg",
+    ],
+    "ocean": [
+        "https://upload.wikimedia.org/wikipedia/commons/8/84/Sea_waves.wav",
+    ],
+    "fire": [
+        "https://upload.wikimedia.org/wikipedia/commons/d/d8/Dry_grass_burning_in_open_fireplace.ogg",
+    ],
+    "forest": [
+        "https://upload.wikimedia.org/wikipedia/commons/0/0a/20090610_0_ambience.ogg",
+    ],
+    "whitenoise": [
+        "https://upload.wikimedia.org/wikipedia/commons/7/70/White_noise_sample.wav",
+        "https://upload.wikimedia.org/wikipedia/commons/a/aa/White_noise.ogg",
+    ],
+    "brownnoise": [
+        "https://upload.wikimedia.org/wikipedia/commons/d/d9/Brown_noise_15-00_69kbps.mp3",
+    ],
+}
+
+
+def _download_asset(sound_type: str) -> bool:
+    """Baixa arquivo de áudio CC0 do Wikimedia Commons e salva em assets/audio/."""
+    urls = _ASSET_URLS.get(sound_type, [])
+    if not urls:
+        return False
+
+    os.makedirs(ASSETS_DIR, exist_ok=True)
+
+    for url in urls:
+        ext = url.rsplit(".", 1)[-1].lower().split("?")[0]
+        dest = os.path.join(ASSETS_DIR, f"{sound_type}.{ext}")
+        tmp = dest + ".tmp"
+
+        print(f"  Baixando áudio real '{sound_type}' do Wikimedia Commons...", end=" ", flush=True)
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "news-app/1.0"})
+            with urllib.request.urlopen(req, timeout=120) as resp, open(tmp, "wb") as f:
+                shutil.copyfileobj(resp, f)
+            os.replace(tmp, dest)
+            size_mb = os.path.getsize(dest) / 1024 / 1024
+            print(f"OK ({size_mb:.1f} MB -> assets/audio/{sound_type}.{ext})")
+            return True
+        except Exception as e:
+            print(f"falhou: {e}")
+            if os.path.exists(tmp):
+                try:
+                    os.remove(tmp)
+                except Exception:
+                    pass
+
+    print(f"  Todos os downloads falharam — usando síntese para '{sound_type}'.")
+    return False
+
 
 def _load_asset(sound_type: str, output_path: str, loop_duration_s: int) -> bool:
     """
-    Se existir assets/audio/<tipo>.wav ou .mp3, usa como base do loop
-    (corta ou repete para atingir loop_duration_s).
+    Se existir assets/audio/<tipo>.wav|mp3|ogg, usa como base do loop.
     Retorna True se usou o asset, False se deve usar síntese.
     """
     import subprocess
-    for ext in ("wav", "mp3"):
+    for ext in ("wav", "mp3", "ogg"):
         asset = os.path.join(ASSETS_DIR, f"{sound_type}.{ext}")
         if os.path.exists(asset):
-            print(f"  Usando arquivo real: {asset}")
+            print(f"  Usando arquivo real: assets/audio/{sound_type}.{ext}")
             cmd = [
                 "ffmpeg", "-y",
                 "-stream_loop", "-1", "-i", asset,
@@ -182,7 +242,15 @@ def generate_ambient_audio(sound_type: str, output_path: str, loop_duration_s: i
     if sound_type not in _GENERATORS:
         raise ValueError(f"Tipo '{sound_type}' inválido. Use: {SOUND_TYPES}")
 
-    # Usa arquivo real de assets/audio/<tipo>.wav|mp3 se disponível
+    # Baixa arquivo real na primeira vez que este tipo for solicitado
+    asset_exists = any(
+        os.path.exists(os.path.join(ASSETS_DIR, f"{sound_type}.{ext}"))
+        for ext in ("wav", "mp3", "ogg")
+    )
+    if not asset_exists:
+        _download_asset(sound_type)
+
+    # Usa arquivo real de assets/audio/<tipo>.wav|mp3|ogg se disponível
     if _load_asset(sound_type, output_path, loop_duration_s):
         print(f"  OK — {loop_duration_s}s, salvo em {output_path}")
         return output_path

@@ -298,6 +298,24 @@ def generate_ambient_video(
         try:
             video_id = upload_video(output_path, yt_title, yt_desc, cfg["yt_tags"], privacy=privacy)
             print(f"  YouTube: https://youtu.be/{video_id}")
+            from playlists import add_to_playlist
+            add_to_playlist(video_id, sound_type)
+
+            # Thumbnail automática
+            print("  Gerando thumbnail...")
+            from thumbnail import generate_ambient_thumbnail
+            from uploader import upload_thumbnail
+            thumb_path = output_path.replace(".mp4", "_thumb.jpg")
+            try:
+                generate_ambient_thumbnail(sound_type, hours, cfg["pexels_query"], thumb_path)
+                upload_thumbnail(video_id, thumb_path)
+                try:
+                    os.remove(thumb_path)
+                except Exception:
+                    pass
+            except Exception as e:
+                print(f"  Thumbnail ignorada: {e}")
+
             try:
                 os.remove(output_path)
                 print(f"  Vídeo local removido após upload.")
