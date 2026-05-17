@@ -9,11 +9,18 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from googleapiclient.errors import HttpError
 
-SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
+SCOPES = ["https://www.googleapis.com/auth/youtube"]  # cobre upload + playlists
 TOKEN_FILE = "token.json"
 SECRETS_FILE = "client_secrets.json"
 
 YOUTUBE_CATEGORY_NEWS = "25"  # Notícias e Política
+
+
+def _is_headless():
+    """True quando não há display disponível (VPS/servidor Linux sem GUI)."""
+    if os.name == "nt":
+        return False
+    return not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY")
 
 
 def _get_credentials():
@@ -21,6 +28,10 @@ def _get_credentials():
     if os.path.exists(TOKEN_FILE):
         with open(TOKEN_FILE, "rb") as f:
             creds = pickle.load(f)
+        # Re-autentica automaticamente se o token não cobre o escopo atual
+        if creds and creds.scopes and not set(SCOPES).issubset(set(creds.scopes)):
+            print("  Escopos OAuth desatualizados — reautenticando...")
+            creds = None
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
@@ -31,10 +42,21 @@ def _get_credentials():
                     "Baixe em: Google Cloud Console → Credenciais → OAuth 2.0 → Aplicativo para desktop"
                 )
             flow = InstalledAppFlow.from_client_secrets_file(SECRETS_FILE, SCOPES)
-            creds = flow.run_local_server(port=0)
+            if _is_headless():
+                # Ambiente sem display: exibe URL e aguarda código no terminal
+                print("\n  Autenticação YouTube necessária.")
+                print("  Abra a URL abaixo em qualquer browser e cole o código aqui:\n")
+                creds = flow.run_console()
+            else:
+                creds = flow.run_local_server(port=0)
         with open(TOKEN_FILE, "wb") as f:
             pickle.dump(creds, f)
     return creds
+
+
+def get_youtube_service():
+    """Retorna instância autenticada do YouTube Data API v3."""
+    return build("youtube", "v3", credentials=_get_credentials())
 
 
 def upload_video(video_path, title, description, tags=None, publish_at_hour=6, privacy="private"):
@@ -120,6 +142,24 @@ def upload_video(video_path, title, description, tags=None, publish_at_hour=6, p
     print(f"  Upload: 100% — concluído!")
     print(f"  URL: https://youtu.be/{video_id}")
     return video_id
+
+
+def upload_thumbnail(video_id: str, thumb_path: str) -> bool:
+    """Faz upload da thumbnail para o vídeo já publicado no YouTube."""
+    if not os.path.exists(thumb_path):
+        print(f"  Thumbnail não encontrada: {thumb_path}")
+        return False
+    try:
+        youtube = get_youtube_service()
+        youtube.thumbnails().set(
+            videoId=video_id,
+            media_body=MediaFileUpload(thumb_path, mimetype="image/jpeg"),
+        ).execute()
+        print(f"  Thumbnail enviada para https://youtu.be/{video_id}")
+        return True
+    except Exception as e:
+        print(f"  Erro ao enviar thumbnail: {e}")
+        return False
 
 
 def build_description(news_items, date_str):

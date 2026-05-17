@@ -1,3 +1,5 @@
+import os
+
 # Configurações do App de Notícias
 
 # Suas fontes originais
@@ -27,9 +29,11 @@ MAX_WORDS_SUMMARY = 150
 TTS_VOICE = "pt-BR-AntonioNeural" # Voz masculina natural
 AUDIO_OUTPUT_DIR = "./audio_news"
 
-# Configurações de Output para NotebookLM (Google Drive)
-# Se você tiver o Google Drive para Desktop, mude este caminho para sua pasta do Drive
-DRIVE_SYNC_DIR = r"J:\Meu Drive\News-app"
+# Diretório de sync — define via variável de ambiente para portabilidade.
+# Windows padrão: J:\Meu Drive\News-app (Google Drive Desktop)
+# Linux padrão: ~/news-app-drive  (ou monte o Drive com rclone)
+_drive_default = r"J:\Meu Drive\News-app" if os.name == "nt" else os.path.expanduser("~/news-app-drive")
+DRIVE_SYNC_DIR = os.environ.get("DRIVE_SYNC_DIR", _drive_default)
 
 # Configurações de Vídeo
 VIDEO_OUTPUT_DIR = "./video_news"
