@@ -1,10 +1,13 @@
 import os
 import pickle
+import socket
+import time
 from datetime import datetime, timedelta, timezone
 from google.auth.transport.requests import Request
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
+from googleapiclient.errors import HttpError
 
 SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
 TOKEN_FILE = "token.json"
@@ -91,11 +94,27 @@ def upload_video(video_path, title, description, tags=None, publish_at_hour=6, p
     )
 
     response = None
+    max_retries = 10
+    retry_delay = 5  # segundos (dobra a cada falha)
     while response is None:
-        status, response = request.next_chunk()
-        if status:
-            pct = int(status.progress() * 100)
-            print(f"  Upload: {pct}%", end="\r")
+        try:
+            status, response = request.next_chunk()
+            if status:
+                pct = int(status.progress() * 100)
+                print(f"  Upload: {pct}%", end="\r")
+            retry_delay = 5  # reset após chunk bem-sucedido
+        except (OSError, ConnectionError, TimeoutError, socket.timeout, HttpError) as e:
+            if max_retries <= 0:
+                raise
+            is_retryable = isinstance(e, (OSError, ConnectionError, TimeoutError, socket.timeout)) or (
+                isinstance(e, HttpError) and e.resp.status in (429, 500, 502, 503, 504)
+            )
+            if not is_retryable:
+                raise
+            max_retries -= 1
+            print(f"\n  Falha de conexão ({e}). Tentando novamente em {retry_delay}s... ({max_retries} tentativas restantes)")
+            time.sleep(retry_delay)
+            retry_delay = min(retry_delay * 2, 120)
 
     video_id = response["id"]
     print(f"  Upload: 100% — concluído!")

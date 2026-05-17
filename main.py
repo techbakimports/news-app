@@ -1,3 +1,4 @@
+import argparse
 import asyncio
 import os
 import shutil
@@ -5,16 +6,24 @@ import time
 from datetime import datetime, timedelta
 from fetcher import fetch_latest_news, extract_article_content, select_unique_news
 from summarizer import summarize_news_batch
+from notebooklm_summarizer import summarize_news_notebooklm
 from audio import generate_audio_segments
 from video import generate_video
 from uploader import upload_video, build_description
 from config import DRIVE_SYNC_DIR, AUDIO_OUTPUT_DIR, CHANNEL_NAME
 
+# True  → NotebookLM gera os resumos (sem limite de API)
+# False → Gemini gera os resumos (limite: 20 req/dia no plano free)
+USE_NOTEBOOKLM_SUMMARIZER = True
+
 # Define True para publicar no YouTube após gerar o vídeo.
-# Na primeira execução abrirá o browser para autorização OAuth.
 YOUTUBE_UPLOAD = True
-YOUTUBE_PUBLISH_HOUR = 5   # hora local em que o vídeo será publicado
-YOUTUBE_PRIVACY = "private"  # mantido como "private" até publishAt — torna público às 5h automaticamente
+
+# True  → publica imediatamente como público
+# False → agenda para YOUTUBE_PUBLISH_HOUR (fica privado até lá)
+YOUTUBE_PUBLISH_NOW = True
+
+YOUTUBE_PUBLISH_HOUR = 5   # usado apenas quando YOUTUBE_PUBLISH_NOW = False
 
 # Configuração de Limpeza (apagar arquivos mais antigos que X horas)
 CLEANUP_HOURS = 24
@@ -55,50 +64,50 @@ async def run_news_cycle():
 
     if not os.path.exists(DRIVE_SYNC_DIR): os.makedirs(DRIVE_SYNC_DIR)
 
-    # Fase 1: extração de conteúdo (sem custo de API)
-    print("\nExtraindo conteúdo dos artigos...")
-    for item in items_to_process:
-        content = extract_article_content(item['link'])
-        item['_content'] = content if content else item.get('summary', '')
+    # Fase 1: resumos via NotebookLM (sem limite de API) ou Gemini (fallback)
+    summaries = None
+    if USE_NOTEBOOKLM_SUMMARIZER:
+        summaries = await summarize_news_notebooklm(items_to_process)
+        if summaries is None:
+            print("NotebookLM falhou — usando Gemini como fallback.")
 
-    # Fase 2: resumos em lotes — 5 notícias por chamada Gemini
-    # Plano gratuito: 20 req/dia e 5 req/min.
-    # Com BATCH_SIZE=5: máx. 4 chamadas/dia para 20 itens. Sleep de 15s entre lotes.
-    BATCH_SIZE = 5
+    if summaries is None:
+        # Fallback: Gemini em lotes de 5 (limite: 20 req/dia)
+        print("\nExtraindo conteúdo dos artigos para o Gemini...")
+        for item in items_to_process:
+            content = extract_article_content(item["link"])
+            item["_content"] = content if content else item.get("summary", "")
+
+        BATCH_SIZE = 5
+        summaries = []
+        total_batches = (len(items_to_process) + BATCH_SIZE - 1) // BATCH_SIZE
+        print(f"Gerando resumos em {total_batches} lote(s) de até {BATCH_SIZE} notícias...")
+        for batch_idx, batch_start in enumerate(range(0, len(items_to_process), BATCH_SIZE)):
+            batch = items_to_process[batch_start:batch_start + BATCH_SIZE]
+            batch_input = [
+                {"category": i["category"], "title": i["title"], "content": i["_content"]}
+                for i in batch
+            ]
+            print(f"[Lote {batch_idx + 1}/{total_batches}] {len(batch)} notícias...")
+            summaries.extend(summarize_news_batch(batch_input))
+            if batch_start + BATCH_SIZE < len(items_to_process):
+                await asyncio.sleep(15)
+
+    # Montar roteiro consolidado respeitando o limite de ~15 min
     processed_items = []
-    total_batches = (len(items_to_process) + BATCH_SIZE - 1) // BATCH_SIZE
-    print(f"\nGerando resumos em {total_batches} lote(s) de até {BATCH_SIZE} notícias...")
-
-    for batch_idx, batch_start in enumerate(range(0, len(items_to_process), BATCH_SIZE)):
+    for item, summary in zip(items_to_process, summaries):
         if total_words > max_words:
             print("Limite de 15 minutos atingido. Parando por aqui.")
             break
-
-        batch = items_to_process[batch_start:batch_start + BATCH_SIZE]
-        batch_input = [
-            {'category': i['category'], 'title': i['title'], 'content': i['_content']}
-            for i in batch
-        ]
-
-        print(f"\n[Lote {batch_idx + 1}/{total_batches}] {len(batch)} notícias...")
-        summaries = summarize_news_batch(batch_input)
-
-        for item, summary in zip(batch, summaries):
-            if total_words > max_words:
-                break
-            if summary:
-                item['ai_summary'] = summary
-                consolidated_script += f"{summary}\n\n"
-                total_words += len(summary.split())
-            else:
-                item['ai_summary'] = None
-                consolidated_script += f"{item['title']} — Fonte: {item['source']}\n\n"
-                total_words += len(item['title'].split()) + 2
-            processed_items.append(item)
-
-        # Sleep entre lotes (não após o último)
-        if batch_start + BATCH_SIZE < len(items_to_process) and total_words <= max_words:
-            await asyncio.sleep(15)
+        if summary:
+            item["ai_summary"] = summary
+            consolidated_script += f"{summary}\n\n"
+            total_words += len(summary.split())
+        else:
+            item["ai_summary"] = None
+            consolidated_script += f"{item['title']} — Fonte: {item['source']}\n\n"
+            total_words += len(item["title"].split()) + 2
+        processed_items.append(item)
 
     items_to_process = processed_items
         
@@ -111,20 +120,16 @@ async def run_news_cycle():
         f.write(f"# Resumo de Notícias - {datetime.now().strftime('%d/%m/%Y')}\n\n")
         f.write(consolidated_script)
 
-    # 6. Gerar áudio por segmento (duração exata para sync do vídeo)
-    # O primeiro segmento é a vinheta de abertura; os demais são as notícias.
+    # 6. Gerar áudio por segmento com Edge TTS (sync exato por notícia)
     intro_text = "Bem-vindo ao seu resumo de notícias automatizado."
     segment_texts = [intro_text] + [
         item.get("ai_summary") or f"{item['title']} — Fonte: {item['source']}"
         for item in items_to_process
     ]
-
-    print("\nGerando áudio por segmento (isso pode demorar um pouco)...")
+    print("\nGerando áudio por segmento com Edge TTS...")
     audio_path, all_durations = await generate_audio_segments(
         segment_texts, AUDIO_OUTPUT_DIR, filename_base
     )
-
-    # Vinheta de abertura → slide separado; cada notícia fica exatamente com sua duração real
     intro_duration = all_durations[0]
     news_durations = list(all_durations[1:])
 
@@ -146,7 +151,6 @@ async def run_news_cycle():
 
     print(f"\n--- Ciclo Finalizado! ---")
     print(f"Áudio local: {audio_path}")
-    print(f"Vídeo local: {video_path}")
     print(f"Áudio no Drive: {drive_audio_path}")
     print(f"Roteiro no Drive: {md_path}")
 
@@ -156,6 +160,12 @@ async def run_news_cycle():
         yt_title = f"Resumo de Notícias — {date_str}"
         yt_description = build_description(items_to_process, date_str)
         yt_tags = ["notícias", "brasil", "resumo", "jornalismo", "atualidades"]
+        privacy = "public" if YOUTUBE_PUBLISH_NOW else "private"
+
+        if YOUTUBE_PUBLISH_NOW:
+            print("\nUpload imediato como público...")
+        else:
+            print(f"\nUpload agendado para às {YOUTUBE_PUBLISH_HOUR}h...")
 
         try:
             video_id = await asyncio.to_thread(
@@ -165,13 +175,29 @@ async def run_news_cycle():
                 yt_description,
                 yt_tags,
                 YOUTUBE_PUBLISH_HOUR,
-                YOUTUBE_PRIVACY,
+                privacy,
             )
             print(f"YouTube: https://youtu.be/{video_id}")
+            # Apaga o vídeo local após upload bem-sucedido
+            try:
+                os.remove(video_path)
+                print(f"Vídeo local removido: {video_path}")
+            except Exception as e:
+                print(f"Aviso: não foi possível remover o vídeo local: {e}")
         except FileNotFoundError as e:
             print(f"\nUpload ignorado: {e}")
         except Exception as e:
             print(f"\nErro no upload YouTube: {e}")
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(prog="main.py", add_help=False)
+    parser.add_argument("--sem-upload", action="store_true")
+    parser.add_argument("--privado",    action="store_true")
+    args, _ = parser.parse_known_args()
+
+    if args.sem_upload:
+        YOUTUBE_UPLOAD = False
+    if args.privado:
+        YOUTUBE_PUBLISH_NOW = False
+
     asyncio.run(run_news_cycle())
