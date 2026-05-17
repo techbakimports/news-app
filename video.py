@@ -206,7 +206,8 @@ def _gen_waveform(n_frames, bar_count=60):
     return frames
 
 
-def _make_segment_clip(news_item, duration, channel_name):
+def _prepare_segment_data(news_item, duration, channel_name):
+    """Pré-renderiza todos os dados estáticos de um segmento (imagem, waveform, overlay)."""
     title = news_item["title"]
     category = news_item.get("category", "Notícia")
     color = CATEGORY_COLORS.get(category, DEFAULT_COLOR)
@@ -225,39 +226,13 @@ def _make_segment_clip(news_item, duration, channel_name):
     n_frames = int(math.ceil(duration * FPS))
     waveform = _gen_waveform(n_frames)
 
-    def make_frame(t):
-        frame = base.copy()
-        fi = min(int(t * FPS), n_frames - 1)
-        img = Image.fromarray(frame)
-        draw = ImageDraw.Draw(img)
-
-        bars = waveform[fi]
-        bar_count = len(bars)
-        bar_w = (VIDEO_W - 100) / bar_count
-        bar_max_h = 55
-        bar_base_y = VIDEO_H - 28
-        light = (min(r + 70, 255), min(g + 70, 255), min(b + 70, 255))
-        for i, amp in enumerate(bars):
-            bh = max(3, int(amp * bar_max_h))
-            x0 = 50 + i * bar_w
-            x1 = x0 + bar_w - 2
-            draw.rectangle([(x0, bar_base_y - bh), (x1, bar_base_y)], fill=light)
-
-        progress = t / duration
-        draw.rectangle([(0, VIDEO_H - 5), (int(VIDEO_W * progress), VIDEO_H)], fill=(r, g, b))
-
-        return np.array(img)
-
-    return VideoClip(make_frame, duration=duration).set_fps(FPS)
+    return {"base": base, "waveform": waveform, "color": color, "n_frames": n_frames, "duration": duration}
 
 
 def generate_video(news_items, audio_path, channel_name="NewsApp Brasil", output_filename=None, segment_durations=None, intro_duration=0.0):
     """
-    Gera um vídeo dinâmico a partir das notícias e do áudio consolidado.
-    Cada notícia recebe uma imagem do Pexels e uma waveform animada.
-    Retorna o caminho do vídeo gerado.
-    Se segment_durations for fornecido (duração real medida por segmento),
-    usa esses valores; caso contrário, estima proporcionalmente por contagem de palavras.
+    Gera um vídeo usando um único VideoClip contínuo com timestamps cumulativos.
+    Elimina o drift de sync causado pelo rounding de frames por segmento no MoviePy.
     """
     if not os.path.exists(VIDEO_OUTPUT_DIR):
         os.makedirs(VIDEO_OUTPUT_DIR)
@@ -273,7 +248,7 @@ def generate_video(news_items, audio_path, channel_name="NewsApp Brasil", output
     total_duration = audio.duration
     print(f"Duração total: {total_duration:.1f}s ({total_duration / 60:.1f} min)")
 
-    # Usa durações reais medidas por segmento (sync exato) ou estima por palavras
+    # Durações reais medidas por segmento ou estimativa por palavras
     if segment_durations and len(segment_durations) == len(news_items):
         durations = [max(5.0, d) for d in segment_durations]
         print(f"Durações por segmento (reais): {[f'{d:.1f}s' for d in durations]}")
@@ -283,24 +258,115 @@ def generate_video(news_items, audio_path, channel_name="NewsApp Brasil", output
         total_words = sum(word_counts)
         durations = [max(5.0, total_duration * (wc / total_words)) for wc in word_counts]
 
-    print(f"\nGerando {len(news_items)} segmento(s)...")
-    clips = []
+    # Pré-renderizar todos os segmentos (imagens, waveforms, overlays)
+    print(f"\nPré-renderizando {len(news_items)} segmento(s)...")
+    segments_data = []
 
+    # Segmento 0: intro
     if intro_duration > 0:
         print(f"  Slide de abertura: {intro_duration:.1f}s")
-        clips.append(_make_intro_clip(channel_name, intro_duration).fadein(0.5))
+        intro_n_frames = int(math.ceil(intro_duration * FPS))
+        segments_data.append({"type": "intro", "duration": intro_duration, "n_frames": intro_n_frames})
 
     for i, (item, dur) in enumerate(zip(news_items, durations), 1):
         print(f"\n[{i}/{len(news_items)}] {item.get('category', '')} — {item['title'][:60]}")
-        clip = _make_segment_clip(item, dur, channel_name)
-        if i == 1 and intro_duration <= 0:
-            clip = clip.fadein(0.5)
-        if i == len(news_items):
-            clip = clip.fadeout(0.8)
-        clips.append(clip)
+        data = _prepare_segment_data(item, dur, channel_name)
+        data["type"] = "news"
+        data["is_last"] = (i == len(news_items))
+        segments_data.append(data)
 
-    print("\nConcatenando segmentos e adicionando áudio...")
-    final = concatenate_videoclips(clips, method="compose").set_audio(audio)
+    # Timestamps cumulativos exatos (sem rounding) para cada segmento
+    cum_starts = [0.0]
+    for seg in segments_data:
+        cum_starts.append(cum_starts[-1] + seg["duration"])
+    video_total = cum_starts[-1]
+
+    # Pré-renderizar intro frame base
+    intro_base = None
+    if intro_duration > 0:
+        bg_arr = np.full((VIDEO_H, VIDEO_W, 3), (12, 16, 30), dtype=np.uint8)
+        overlay = Image.new("RGBA", (VIDEO_W, VIDEO_H), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(overlay)
+        f_channel = _get_font(68, bold=True)
+        f_sub = _get_font(26)
+        ch_bbox = draw.textbbox((0, 0), channel_name, font=f_channel)
+        cx = (VIDEO_W - ch_bbox[2]) // 2
+        cy = VIDEO_H // 2 - ch_bbox[3] // 2 - 20
+        draw.text((cx + 2, cy + 2), channel_name, font=f_channel, fill=(0, 0, 0, 160))
+        draw.text((cx, cy), channel_name, font=f_channel, fill=(255, 255, 255, 255))
+        date_str = datetime.now().strftime("%d/%m/%Y")
+        d_bbox = draw.textbbox((0, 0), date_str, font=f_sub)
+        dx = (VIDEO_W - d_bbox[2]) // 2
+        draw.text((dx, cy + ch_bbox[3] + 16), date_str, font=f_sub, fill=(180, 180, 180, 200))
+        intro_base = _alpha_composite(bg_arr, np.array(overlay))
+
+    print("\nGerando vídeo contínuo (sync exato por timestamps cumulativos)...")
+
+    def make_frame_global(t):
+        # Encontra o segmento ativo via busca binária nos timestamps cumulativos
+        seg_idx = len(cum_starts) - 2  # default: último segmento
+        for k in range(len(cum_starts) - 1):
+            if cum_starts[k] <= t < cum_starts[k + 1]:
+                seg_idx = k
+                break
+
+        seg = segments_data[seg_idx]
+        t_local = t - cum_starts[seg_idx]
+        seg_dur = seg["duration"]
+
+        if seg["type"] == "intro":
+            frame = intro_base.copy()
+            img = Image.fromarray(frame)
+            draw = ImageDraw.Draw(img)
+            progress = t_local / seg_dur
+            # Fade in nos primeiros 0.5s
+            if t_local < 0.5:
+                alpha_mask = Image.new("RGBA", (VIDEO_W, VIDEO_H), (0, 0, 0, int(255 * (1 - t_local / 0.5))))
+                img = img.convert("RGBA")
+                img = Image.alpha_composite(img, alpha_mask)
+                img = img.convert("RGB")
+            draw2 = ImageDraw.Draw(img)
+            draw2.rectangle([(0, VIDEO_H - 5), (int(VIDEO_W * progress), VIDEO_H)], fill=(80, 120, 220))
+            return np.array(img)
+
+        # Segmento de notícia
+        base = seg["base"]
+        waveform = seg["waveform"]
+        n_frames = seg["n_frames"]
+        r, g, b = seg["color"]
+        is_last = seg.get("is_last", False)
+
+        frame = base.copy()
+        fi = min(int(t_local * FPS), n_frames - 1)
+        img = Image.fromarray(frame)
+        draw = ImageDraw.Draw(img)
+
+        bars = waveform[fi]
+        bar_count = len(bars)
+        bar_w = (VIDEO_W - 100) / bar_count
+        bar_max_h = 55
+        bar_base_y = VIDEO_H - 28
+        light = (min(r + 70, 255), min(g + 70, 255), min(b + 70, 255))
+        for i, amp in enumerate(bars):
+            bh = max(3, int(amp * bar_max_h))
+            x0 = 50 + i * bar_w
+            x1 = x0 + bar_w - 2
+            draw.rectangle([(x0, bar_base_y - bh), (x1, bar_base_y)], fill=light)
+
+        progress = t_local / seg_dur
+        draw.rectangle([(0, VIDEO_H - 5), (int(VIDEO_W * progress), VIDEO_H)], fill=(r, g, b))
+
+        # Fade out nos últimos 0.8s do último segmento
+        if is_last and t_local > seg_dur - 0.8:
+            fade_progress = (t_local - (seg_dur - 0.8)) / 0.8
+            alpha_val = int(255 * fade_progress)
+            alpha_mask = Image.new("RGBA", (VIDEO_W, VIDEO_H), (0, 0, 0, alpha_val))
+            img_rgba = img.convert("RGBA")
+            img = Image.alpha_composite(img_rgba, alpha_mask).convert("RGB")
+
+        return np.array(img)
+
+    final = VideoClip(make_frame_global, duration=video_total).set_fps(FPS).set_audio(audio)
 
     print(f"Exportando: {output_path}  (aguarde...)")
     final.write_videofile(

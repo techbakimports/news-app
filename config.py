@@ -5,8 +5,8 @@ SITES_ALVO = [
     "g1.globo.com",
     "r7.com",
     "uol.com.br",
-    "globo.com",
-    "terra.com.br"
+    "terra.com.br",
+    "google_news",  # busca geral no Google News sem filtro de site
 ]
 
 # Categorias desejadas
