@@ -9,7 +9,8 @@ from summarizer import summarize_news_batch
 from notebooklm_summarizer import summarize_news_notebooklm
 from audio import generate_audio_segments
 from video import generate_video
-from uploader import upload_video, build_description
+from uploader import upload_video, build_description, upload_thumbnail
+from playlists import add_to_playlist
 from config import DRIVE_SYNC_DIR, AUDIO_OUTPUT_DIR, CHANNEL_NAME
 
 # True  → NotebookLM gera os resumos (sem limite de API)
@@ -24,6 +25,9 @@ YOUTUBE_UPLOAD = True
 YOUTUBE_PUBLISH_NOW = True
 
 YOUTUBE_PUBLISH_HOUR = 5   # usado apenas quando YOUTUBE_PUBLISH_NOW = False
+
+# True → gera e sobe um Short (primeiros 55s do vídeo convertido para vertical)
+YOUTUBE_GENERATE_SHORT = True
 
 # Configuração de Limpeza (apagar arquivos mais antigos que X horas)
 CLEANUP_HOURS = 24
@@ -178,6 +182,36 @@ async def run_news_cycle():
                 privacy,
             )
             print(f"YouTube: https://youtu.be/{video_id}")
+            add_to_playlist(video_id, "noticias")
+
+            # Thumbnail automática
+            print("\nGerando thumbnail...")
+            from thumbnail import generate_thumbnail
+            thumb_path = os.path.join(AUDIO_OUTPUT_DIR, f"{filename_base}_thumb.jpg")
+            try:
+                generate_thumbnail(items_to_process, thumb_path)
+                await asyncio.to_thread(upload_thumbnail, video_id, thumb_path)
+                try:
+                    os.remove(thumb_path)
+                except Exception:
+                    pass
+            except Exception as e:
+                print(f"  Thumbnail ignorada: {e}")
+
+            # Short automático — corte vertical dos primeiros 55s
+            if YOUTUBE_GENERATE_SHORT:
+                print("\nGerando Short do clipe...")
+                from shorts import generate_short_from_video
+                date_str_short = datetime.now().strftime("%d/%m/%Y")
+                await asyncio.to_thread(
+                    generate_short_from_video,
+                    video_path,
+                    f"Notícias — {date_str_short}",
+                    items_to_process,
+                    True,
+                    privacy,
+                )
+
             # Apaga o vídeo local após upload bem-sucedido
             try:
                 os.remove(video_path)
