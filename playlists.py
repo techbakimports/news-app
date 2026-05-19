@@ -1,4 +1,5 @@
 """Gerenciamento de playlists do YouTube."""
+from __future__ import annotations
 import json
 import os
 from googleapiclient.errors import HttpError

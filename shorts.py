@@ -2,6 +2,7 @@
 Gera YouTube Shorts verticais (1080×1920) a partir das principais notícias do dia.
 Duração: ~50s por Short — compatível com o algoritmo de Shorts do YouTube.
 """
+from __future__ import annotations
 import argparse
 import asyncio
 import os
