@@ -376,10 +376,18 @@ if __name__ == "__main__":
     upload  = not args.sem_upload
     sons    = tipos if args.tipo == "todos" else [args.tipo]
 
+    from telegram_notifier import notify
     for som in sons:
-        generate_ambient_video(
-            sound_type=som,
-            hours=args.horas,
-            upload=upload,
-            privacy=privacy,
-        )
+        try:
+            generate_ambient_video(
+                sound_type=som,
+                hours=args.horas,
+                upload=upload,
+                privacy=privacy,
+            )
+            label = SOUND_CONFIG[som]["label"]
+            if upload:
+                notify(f"✅ <b>Áudio Longo postado!</b>\n{label} — {args.horas}h")
+        except Exception as e:
+            notify(f"❌ <b>Erro no Áudio Longo ({som}):</b> {e}")
+            raise

@@ -333,6 +333,8 @@ async def run_shorts_pipeline(
         await generate_short(item, upload=upload, privacy=privacy)
 
     print("\n=== Shorts concluídos! ===")
+    from telegram_notifier import notify
+    notify(f"✅ <b>Shorts concluídos!</b>\n{len(items)} Short(s) gerado(s).")
 
 
 # ---------------------------------------------------------------------------

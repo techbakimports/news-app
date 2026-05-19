@@ -5,3 +5,4 @@ beautifulsoup4
 requests
 python-dotenv
 aiofiles
+python-telegram-bot>=20.0

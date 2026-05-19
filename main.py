@@ -218,10 +218,15 @@ async def run_news_cycle():
                 print(f"Vídeo local removido: {video_path}")
             except Exception as e:
                 print(f"Aviso: não foi possível remover o vídeo local: {e}")
+
+            from telegram_notifier import notify
+            notify(f"✅ <b>Notícias postadas!</b>\n{yt_title}\nhttps://youtu.be/{video_id}")
         except FileNotFoundError as e:
             print(f"\nUpload ignorado: {e}")
         except Exception as e:
             print(f"\nErro no upload YouTube: {e}")
+            from telegram_notifier import notify
+            notify(f"❌ <b>Erro no upload de Notícias:</b> {e}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(prog="main.py", add_help=False)
