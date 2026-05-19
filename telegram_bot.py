@@ -244,11 +244,16 @@ async def _run_pipeline(chat_id: int, bot, cmd: list, descricao: str, msg=None) 
             msg = await bot.send_message(chat_id, f"⏳ <b>{descricao}</b>", parse_mode="HTML")
 
     lines: list[str] = []
-    last_edit = asyncio.get_running_loop().time()
+    loop       = asyncio.get_running_loop()
+    start_time = loop.time()
 
     async def _editar(texto_final: str = "") -> None:
-        tail = "\n".join(lines[-12:])[:3500]
-        text = texto_final or f"⏳ <b>{descricao}</b>\n\n<code>{tail}</code>"
+        tail = "\n".join(lines[-12:])[:3400]
+        if texto_final:
+            text = texto_final
+        else:
+            elapsed = int(loop.time() - start_time)
+            text = f"⏳ <b>{descricao}</b> ({elapsed}s)\n\n<code>{tail}</code>"
         try:
             await msg.edit_text(text, parse_mode="HTML")
         except Exception:
@@ -257,6 +262,7 @@ async def _run_pipeline(chat_id: int, bot, cmd: list, descricao: str, msg=None) 
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
 
+    texto = f"❌ Erro interno desconhecido"
     try:
         proc = await asyncio.create_subprocess_exec(
             *cmd,
@@ -266,18 +272,24 @@ async def _run_pipeline(chat_id: int, bot, cmd: list, descricao: str, msg=None) 
             env=env,
         )
 
-        while True:
-            raw = await proc.stdout.readline()
-            if not raw:
-                break
-            linha = raw.decode(errors="replace").replace("\r", "").strip()
-            if linha:
-                lines.append(linha)
+        async def _ler():
+            while True:
+                raw = await proc.stdout.readline()
+                if not raw:
+                    break
+                linha = raw.decode(errors="replace").replace("\r", "").strip()
+                if linha:
+                    lines.append(linha)
 
-            now = asyncio.get_running_loop().time()
-            if now - last_edit >= 3.0:
+        async def _atualizar():
+            while True:
+                await asyncio.sleep(3.0)
                 await _editar()
-                last_edit = now
+
+        reader  = asyncio.create_task(_ler())
+        updater = asyncio.create_task(_atualizar())
+        await reader
+        updater.cancel()
 
         await proc.wait()
         tail = "\n".join(lines[-20:])[:3800]
@@ -454,6 +466,11 @@ async def _handle_run(q, context, parts: list) -> None:
         audio_tipo, horas, visib = parts[1], parts[2], parts[3]
         tipos = list(SONS.keys()) if audio_tipo == "todos" else [audio_tipo]
 
+        # tipo único → atualiza a mesma mensagem; "todos" → mensagem separada por tipo
+        msg_unico = q.message if len(tipos) == 1 else None
+        if msg_unico is None:
+            await q.edit_message_text(f"⏳ {len(tipos)} pipeline(s) iniciado(s)…")
+
         for t in tipos:
             cmd = [PYTHON, str(BASE_DIR / "ambient_video.py"), t, "--horas", horas]
             if visib == "priv":
@@ -462,9 +479,8 @@ async def _handle_run(q, context, parts: list) -> None:
                 cmd.append("--sem-upload")
             label     = SONS.get(t, t)
             descricao = f"Áudio {label} {horas}h → {_VISIB_LABEL[visib]}"
-            asyncio.create_task(_run_pipeline(chat_id, context.bot, cmd, descricao))
-
-        await q.edit_message_text(f"⏳ {len(tipos)} pipeline(s) iniciado(s)…")
+            asyncio.create_task(_run_pipeline(chat_id, context.bot, cmd, descricao, msg_unico))
+            msg_unico = None  # só o primeiro tipo reutiliza a mensagem original
         return
 
     # -- shorts --
