@@ -273,17 +273,29 @@ async def _run_pipeline(chat_id: int, bot, cmd: list, descricao: str, msg=None) 
         )
 
         async def _ler():
+            buf = b""
             while True:
-                raw = await proc.stdout.readline()
-                if not raw:
+                chunk = await proc.stdout.read(256)
+                if not chunk:
                     break
-                linha = raw.decode(errors="replace").replace("\r", "").strip()
+                sys.stdout.buffer.write(chunk)
+                sys.stdout.buffer.flush()
+                buf += chunk
+                while b"\n" in buf:
+                    line_bytes, buf = buf.split(b"\n", 1)
+                    decoded = line_bytes.decode(errors="replace")
+                    # \r-overwrite lines: pega só o último "frame"
+                    linha = decoded.split("\r")[-1].strip()
+                    if linha:
+                        lines.append(linha)
+            if buf.strip():
+                linha = buf.decode(errors="replace").split("\r")[-1].strip()
                 if linha:
                     lines.append(linha)
 
         async def _atualizar():
             while True:
-                await asyncio.sleep(3.0)
+                await asyncio.sleep(5.0)
                 await _editar()
 
         reader  = asyncio.create_task(_ler())

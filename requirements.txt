@@ -1,8 +1,15 @@
 feedparser
 google-generativeai
+google-api-python-client
+google-auth-oauthlib
 edge-tts
 beautifulsoup4
 requests
 python-dotenv
 aiofiles
 python-telegram-bot>=20.0
+Pillow
+moviepy<2.0
+numpy
+notebooklm-py
+groq

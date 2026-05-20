@@ -1,17 +1,43 @@
 import argparse
 import asyncio
+import logging
 import os
 import shutil
 import time
 from datetime import datetime, timedelta
 from fetcher import fetch_latest_news, extract_article_content, select_unique_news
 from summarizer import summarize_news_batch
-from notebooklm_summarizer import summarize_news_notebooklm
+try:
+    from notebooklm_summarizer import summarize_news_notebooklm
+    _NOTEBOOKLM_AVAILABLE = True
+except ImportError:
+    _NOTEBOOKLM_AVAILABLE = False
 from audio import generate_audio_segments
 from video import generate_video
 from uploader import upload_video, build_description, upload_thumbnail
 from playlists import add_to_playlist
 from config import DRIVE_SYNC_DIR, AUDIO_OUTPUT_DIR, CHANNEL_NAME
+
+# Logging para arquivo — permite monitorar com: tail -f logs/noticias.log
+_LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+os.makedirs(_LOG_DIR, exist_ok=True)
+_log_file = os.path.join(_LOG_DIR, "noticias.log")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(message)s",
+    datefmt="%H:%M:%S",
+    handlers=[
+        logging.FileHandler(_log_file, encoding="utf-8"),
+        logging.StreamHandler(),
+    ],
+)
+log = logging.getLogger(__name__)
+_orig_print = print
+def print(*args, **kwargs):  # noqa: A001
+    _orig_print(*args, **kwargs)
+    msg = " ".join(str(a) for a in args)
+    if msg.strip():
+        log.info(msg)
 
 # True  → NotebookLM gera os resumos (sem limite de API)
 # False → Gemini gera os resumos (limite: 20 req/dia no plano free)
@@ -70,10 +96,12 @@ async def run_news_cycle():
 
     # Fase 1: resumos via NotebookLM (sem limite de API) ou Gemini (fallback)
     summaries = None
-    if USE_NOTEBOOKLM_SUMMARIZER:
+    if USE_NOTEBOOKLM_SUMMARIZER and _NOTEBOOKLM_AVAILABLE:
         summaries = await summarize_news_notebooklm(items_to_process)
         if summaries is None:
             print("NotebookLM falhou — usando Gemini como fallback.")
+    elif USE_NOTEBOOKLM_SUMMARIZER and not _NOTEBOOKLM_AVAILABLE:
+        print("notebooklm-py não instalado — usando Gemini como fallback.")
 
     if summaries is None:
         # Fallback: Gemini em lotes de 5 (limite: 20 req/dia)
