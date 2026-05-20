@@ -20,6 +20,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.error import RetryAfter
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
 
 load_dotenv()
@@ -43,6 +44,32 @@ CRON_NOTICIAS = "YOUTUBER:noticias"
 CRON_AUDIO    = "YOUTUBER:audio"
 LOG_DIR       = BASE_DIR / "logs"
 SCHEDULER_CFG = BASE_DIR / "scheduler.json"
+
+# Rate-limiter global para editMessageText (Telegram: ~20 edições/min por chat)
+_tg_edit_lock: asyncio.Lock | None = None
+_tg_last_edit: float = 0.0
+_TG_MIN_GAP = 3.5  # segundos mínimos entre chamadas consecutivas
+
+
+async def _safe_edit(msg, text: str) -> None:
+    """Edita mensagem com rate-limit global (máx ~17 edições/min)."""
+    global _tg_edit_lock, _tg_last_edit
+    if _tg_edit_lock is None:
+        _tg_edit_lock = asyncio.Lock()
+    async with _tg_edit_lock:
+        loop = asyncio.get_running_loop()
+        gap = _TG_MIN_GAP - (loop.time() - _tg_last_edit)
+        if gap > 0:
+            await asyncio.sleep(gap)
+        try:
+            await msg.edit_text(text, parse_mode="HTML")
+            _tg_last_edit = loop.time()
+        except RetryAfter as e:
+            await asyncio.sleep(e.retry_after + 1)
+            _tg_last_edit = loop.time()
+        except Exception:
+            pass
+
 
 SONS = {
     "rain":       "Chuva",
@@ -254,10 +281,7 @@ async def _run_pipeline(chat_id: int, bot, cmd: list, descricao: str, msg=None) 
         else:
             elapsed = int(loop.time() - start_time)
             text = f"⏳ <b>{descricao}</b> ({elapsed}s)\n\n<code>{tail}</code>"
-        try:
-            await msg.edit_text(text, parse_mode="HTML")
-        except Exception:
-            pass
+        await _safe_edit(msg, text)
 
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
@@ -295,7 +319,7 @@ async def _run_pipeline(chat_id: int, bot, cmd: list, descricao: str, msg=None) 
 
         async def _atualizar():
             while True:
-                await asyncio.sleep(5.0)
+                await asyncio.sleep(10.0)
                 await _editar()
 
         reader  = asyncio.create_task(_ler())
