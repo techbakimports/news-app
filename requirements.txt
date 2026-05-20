@@ -11,5 +11,6 @@ python-telegram-bot>=20.0
 Pillow
 moviepy<2.0
 numpy
+scipy
 notebooklm-py
 groq
