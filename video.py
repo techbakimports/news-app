@@ -65,13 +65,16 @@ def _get_font(size, bold=False):
         "C:/Windows/Fonts/arialbd.ttf"   if bold else "C:/Windows/Fonts/arial.ttf",
         "C:/Windows/Fonts/calibrib.ttf"  if bold else "C:/Windows/Fonts/calibri.ttf",
         "C:/Windows/Fonts/segoeuib.ttf"  if bold else "C:/Windows/Fonts/segoeui.ttf",
-        # Linux — Liberation (substituto do Arial)
+        # Linux — Debian/Ubuntu (com subpasta truetype/)
         "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"    if bold else "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-        # Linux — DejaVu
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"            if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        # Linux — Ubuntu / Noto
         "/usr/share/fonts/truetype/ubuntu/Ubuntu-B.ttf"                   if bold else "/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf",
         "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf"                if bold else "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+        # Linux — RHEL/Rocky Linux/CentOS (sem subpasta truetype/)
+        "/usr/share/fonts/liberation/LiberationSans-Bold.ttf"             if bold else "/usr/share/fonts/liberation/LiberationSans-Regular.ttf",
+        "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf"                     if bold else "/usr/share/fonts/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/google-noto/NotoSans-Bold.ttf"                  if bold else "/usr/share/fonts/google-noto/NotoSans-Regular.ttf",
+        "/usr/share/fonts/google-noto-cjk/NotoSansCJK-Bold.ttc"          if bold else "/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc",
     ]
     for path in candidates:
         if os.path.exists(path):
@@ -79,6 +82,21 @@ def _get_font(size, bold=False):
                 return ImageFont.truetype(path, size)
             except Exception:
                 pass
+
+    # Fallback: procura qualquer .ttf disponível no sistema
+    import glob
+    bold_kw = "Bold" if bold else ""
+    for pattern in [
+        f"/usr/share/fonts/**/*{bold_kw}*.ttf",
+        "/usr/share/fonts/**/*.ttf",
+    ]:
+        found = glob.glob(pattern, recursive=True)
+        if found:
+            try:
+                return ImageFont.truetype(sorted(found)[0], size)
+            except Exception:
+                pass
+
     return ImageFont.load_default()
 
 
