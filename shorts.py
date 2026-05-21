@@ -38,7 +38,9 @@ SHORTS_OUTPUT_DIR = "./shorts_videos"
 def _summarize_for_short(title: str, category: str, content: str) -> str:
     """Gera um texto de ~60 palavras otimizado para Shorts (impacto imediato)."""
     try:
-        import google.generativeai as genai
+        from google import genai
+        import os
+        client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
         prompt = (
             f"Você é um apresentador de notícias no estilo TikTok/Shorts — direto, impactante e sem rodeios.\n"
             f"Escreva UM parágrafo de no máximo 60 palavras sobre a notícia abaixo.\n"
@@ -48,8 +50,7 @@ def _summarize_for_short(title: str, category: str, content: str) -> str:
             f"Título: {title}\n"
             f"Conteúdo: {content[:600]}\n"
         )
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        resp = model.generate_content(prompt)
+        resp = client.models.generate_content(model="gemini-2.0-flash", contents=prompt)
         text = resp.text.strip()
         # Garante no máximo MAX_WORDS_SHORT palavras
         words = clean_text(text).split()

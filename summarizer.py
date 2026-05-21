@@ -1,7 +1,6 @@
 import os
 import re
 import time
-import google.generativeai as genai
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -9,9 +8,7 @@ load_dotenv()
 gemini_key = os.getenv("GEMINI_API_KEY")
 groq_key = os.getenv("GROQ_API_KEY")
 
-if gemini_key:
-    genai.configure(api_key=gemini_key)
-else:
+if not gemini_key:
     print("AVISO: GEMINI_API_KEY não encontrada no arquivo .env")
 
 if not groq_key or groq_key == "cole_sua_chave_aqui":
@@ -61,8 +58,9 @@ def _parse_batch_response(text, n):
 
 
 def _call_gemini_batch(prompt, n):
-    model = genai.GenerativeModel('gemini-flash-latest')
-    response = model.generate_content(prompt)
+    from google import genai as _genai
+    client = _genai.Client(api_key=gemini_key)
+    response = client.models.generate_content(model="gemini-2.0-flash", contents=prompt)
     return _parse_batch_response(response.text.strip(), n)
 
 
@@ -82,7 +80,8 @@ def summarize_news(category, title, content):
     if not gemini_key:
         return "Resumo indisponível (chave de API não configurada)."
     try:
-        model = genai.GenerativeModel('gemini-flash-latest')
+        from google import genai as _genai
+        client = _genai.Client(api_key=gemini_key)
         prompt = f"""Você é um locutor de podcast de notícias. Resuma a notícia abaixo de forma concisa e envolvente.
 
 REGRAS OBRIGATÓRIAS:
@@ -96,7 +95,7 @@ Título: {title}
 Conteúdo: {content}
 
 Resumo (somente texto simples):"""
-        response = model.generate_content(prompt)
+        response = client.models.generate_content(model="gemini-2.0-flash", contents=prompt)
         return response.text.strip()
     except Exception as e:
         print(f"Erro ao gerar resumo com Gemini: {e}")
