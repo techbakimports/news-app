@@ -240,12 +240,13 @@ async def run_news_cycle():
                     privacy,
                 )
 
-            # Apaga o vídeo local após upload bem-sucedido
-            try:
-                os.remove(video_path)
-                print(f"Vídeo local removido: {video_path}")
-            except Exception as e:
-                print(f"Aviso: não foi possível remover o vídeo local: {e}")
+            # Apaga vídeo e áudio locais após upload bem-sucedido
+            for path, label in [(video_path, "Vídeo"), (audio_path, "Áudio")]:
+                try:
+                    os.remove(path)
+                    print(f"{label} local removido: {path}")
+                except Exception as e:
+                    print(f"Aviso: não foi possível remover {label.lower()} local: {e}")
 
             from telegram_notifier import notify
             notify(f"✅ <b>Notícias postadas!</b>\n{yt_title}\nhttps://youtu.be/{video_id}")
