@@ -453,8 +453,8 @@ def _list_channel_videos(max_results: int = 10) -> list[dict]:
             for item in pl_resp.get("items", []):
                 sn = item["snippet"]
                 title = sn.get("title", "")
-                # Exclui Shorts já criados (evita loop infinito)
-                if "#Shorts" in title or "Short" in title:
+                # Exclui Shorts e episódios de podcast (Resumo de Notícias) — sem conteúdo útil para Short
+                if "#Shorts" in title or "Short" in title or "Resumo de Notícias" in title:
                     continue
                 videos.append({
                     "id":          sn["resourceId"]["videoId"],
