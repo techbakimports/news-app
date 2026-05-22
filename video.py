@@ -3,6 +3,7 @@ import io
 import math
 import re
 import random
+import glob
 import requests
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
@@ -84,7 +85,6 @@ def _get_font(size, bold=False):
                 pass
 
     # Fallback: procura qualquer .ttf disponível no sistema
-    import glob
     bold_kw = "Bold" if bold else ""
     for pattern in [
         f"/usr/share/fonts/**/*{bold_kw}*.ttf",

@@ -11,6 +11,15 @@ groq_key = os.getenv("GROQ_API_KEY")
 if not gemini_key:
     print("AVISO: GEMINI_API_KEY não encontrada no arquivo .env")
 
+_gemini_client = None
+
+def _get_gemini_client():
+    global _gemini_client
+    if _gemini_client is None and gemini_key:
+        from google import genai
+        _gemini_client = genai.Client(api_key=gemini_key)
+    return _gemini_client
+
 if not groq_key or groq_key == "cole_sua_chave_aqui":
     groq_key = None
 
@@ -58,8 +67,7 @@ def _parse_batch_response(text, n):
 
 
 def _call_gemini_batch(prompt, n):
-    from google import genai as _genai
-    client = _genai.Client(api_key=gemini_key)
+    client = _get_gemini_client()
     response = client.models.generate_content(model="gemini-2.0-flash", contents=prompt)
     return _parse_batch_response(response.text.strip(), n)
 
@@ -80,8 +88,7 @@ def summarize_news(category, title, content):
     if not gemini_key:
         return "Resumo indisponível (chave de API não configurada)."
     try:
-        from google import genai as _genai
-        client = _genai.Client(api_key=gemini_key)
+        client = _get_gemini_client()
         prompt = f"""Você é um locutor de podcast de notícias. Resuma a notícia abaixo de forma concisa e envolvente.
 
 REGRAS OBRIGATÓRIAS:

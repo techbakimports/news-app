@@ -39,7 +39,6 @@ def _summarize_for_short(title: str, category: str, content: str) -> str:
     """Gera um texto de ~60 palavras otimizado para Shorts (impacto imediato)."""
     try:
         from google import genai
-        import os
         client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
         prompt = (
             f"Você é um apresentador de notícias no estilo TikTok/Shorts — direto, impactante e sem rodeios.\n"
