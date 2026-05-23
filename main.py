@@ -219,6 +219,20 @@ async def run_news_cycle():
             try:
                 generate_thumbnail(items_to_process, thumb_path)
                 await asyncio.to_thread(upload_thumbnail, video_id, thumb_path)
+
+                # Instagram — posta thumbnail como foto no feed
+                from config import INSTAGRAM_UPLOAD
+                if INSTAGRAM_UPLOAD:
+                    from instagram_uploader import upload_photo, INSTAGRAM_ENABLED
+                    if INSTAGRAM_ENABLED:
+                        ig_caption = (
+                            f"Resumo de Notícias — {date_str}\n\n"
+                            + "\n".join(f"- {it.get('title', '')}" for it in items_to_process[:5])
+                            + f"\n\nAssista completo no YouTube!\n\n"
+                            f"#noticias #brasil #resumodenoticias #newsapp"
+                        )
+                        upload_photo(thumb_path, ig_caption)
+
                 try:
                     os.remove(thumb_path)
                 except Exception:

@@ -485,6 +485,7 @@ def main():
         print("  3.  Shorts")
         print("  4.  Agendamento")
         print("  5.  Organizar vídeos em playlists")
+        print("  6.  Status do Instagram")
         print()
         print("  0.  Sair")
         print()
@@ -507,6 +508,23 @@ def main():
                 print()
                 from playlists import organize_existing_videos
                 organize_existing_videos()
+            aguardar()
+        elif op == "6":
+            cabecalho("-- INSTAGRAM --")
+            from instagram_uploader import INSTAGRAM_ENABLED
+            if INSTAGRAM_ENABLED:
+                print("  Status: ATIVO")
+                print("  Credenciais configuradas no .env")
+                print()
+                print("  O Instagram é acionado automaticamente ao publicar:")
+                print("    - Shorts -> Reel no Instagram")
+                print("    - Notícias -> Thumbnail como post no feed")
+            else:
+                print("  Status: INATIVO")
+                print()
+                print("  Para ativar, adicione no .env:")
+                print("    INSTAGRAM_USERNAME=seu_usuario")
+                print("    INSTAGRAM_PASSWORD=sua_senha")
             aguardar()
         elif op == "0":
             cls()

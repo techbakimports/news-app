@@ -158,6 +158,7 @@ def kb_main() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("📱 Shorts",               callback_data="nav|shorts")],
         [InlineKeyboardButton("⏰ Agendamento",           callback_data="nav|agenda")],
         [InlineKeyboardButton("📂 Organizar Playlists",  callback_data="run|playlists")],
+        [InlineKeyboardButton("📸 Status Instagram",     callback_data="nav|instagram")],
     ])
 
 
@@ -381,6 +382,21 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             await q.edit_message_text("📱 <b>Shorts</b>", reply_markup=kb_shorts(), parse_mode="HTML")
         elif dest == "agenda":
             await q.edit_message_text("⏰ <b>Agendamento</b>", reply_markup=kb_agenda(), parse_mode="HTML")
+        elif dest == "instagram":
+            from instagram_uploader import INSTAGRAM_ENABLED
+            if INSTAGRAM_ENABLED:
+                status = "✅ <b>ATIVO</b> — credenciais configuradas"
+                detail = "\nPosts automáticos:\n• Shorts → Reel\n• Notícias → Thumbnail no feed"
+            else:
+                status = "❌ <b>INATIVO</b>"
+                detail = "\nAdicione no .env:\n<code>INSTAGRAM_USERNAME=\nINSTAGRAM_PASSWORD=</code>"
+            await q.edit_message_text(
+                f"📸 Instagram\n\n{status}{detail}",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("⬅️ Voltar", callback_data="nav|main")],
+                ]),
+                parse_mode="HTML",
+            )
         return
 
     # ── áudio: seleção de horas (execução) ────────────────────────────────────

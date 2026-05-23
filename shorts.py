@@ -298,6 +298,20 @@ async def generate_short(item: dict, upload: bool = True, privacy: str = "public
             video_id = upload_video(output_path, yt_title, yt_desc, yt_tags, privacy=privacy)
             print(f"  YouTube Shorts: https://youtu.be/{video_id}")
             add_to_playlist(video_id, "noticias")
+
+            # Instagram Reel — reaproveita o mesmo vídeo vertical
+            from config import INSTAGRAM_UPLOAD
+            if INSTAGRAM_UPLOAD:
+                from instagram_uploader import upload_reel, INSTAGRAM_ENABLED
+                if INSTAGRAM_ENABLED:
+                    ig_caption = (
+                        f"{title}\n\n"
+                        f"{summary}\n\n"
+                        f"Fonte: {source}\n\n"
+                        f"#noticias #brasil #newsapp #{category.lower().replace(' ', '')}"
+                    )
+                    upload_reel(output_path, ig_caption)
+
             try:
                 os.remove(output_path)
             except Exception:
@@ -413,6 +427,19 @@ def generate_short_from_video(
         video_id = upload_video(output_path, yt_title, yt_desc, yt_tags, privacy=privacy)
         print(f"  YouTube Short: https://youtu.be/{video_id}")
         add_to_playlist(video_id, "noticias")
+
+        # Instagram Reel — corte vertical do vídeo de notícias
+        from config import INSTAGRAM_UPLOAD
+        if INSTAGRAM_UPLOAD:
+            from instagram_uploader import upload_reel, INSTAGRAM_ENABLED
+            if INSTAGRAM_ENABLED:
+                ig_caption = (
+                    f"{title}\n\n"
+                    + "\n".join(f"- {it.get('title', '')}" for it in items[:3])
+                    + f"\n\n#noticias #brasil #newsapp #resumo"
+                )
+                upload_reel(output_path, ig_caption)
+
         try:
             os.remove(output_path)
         except Exception:

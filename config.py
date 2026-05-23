@@ -38,3 +38,6 @@ DRIVE_SYNC_DIR = os.environ.get("DRIVE_SYNC_DIR", _drive_default)
 # Configurações de Vídeo
 VIDEO_OUTPUT_DIR = "./video_news"
 CHANNEL_NAME = "NewsApp Brasil"  # Nome exibido no canto superior direito do vídeo
+
+# Instagram — ativa se INSTAGRAM_USERNAME e INSTAGRAM_PASSWORD estiverem no .env
+INSTAGRAM_UPLOAD = True  # False para desativar mesmo com credenciais configuradas
