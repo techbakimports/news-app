@@ -41,3 +41,6 @@ CHANNEL_NAME = "NewsApp Brasil"  # Nome exibido no canto superior direito do ví
 
 # Instagram — ativa se INSTAGRAM_USERNAME e INSTAGRAM_PASSWORD estiverem no .env
 INSTAGRAM_UPLOAD = True  # False para desativar mesmo com credenciais configuradas
+
+# TikTok — ativa se tiktok_cookies.txt existir na raiz do projeto
+TIKTOK_UPLOAD = True  # False para desativar mesmo com cookies configurados

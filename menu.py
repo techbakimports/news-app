@@ -487,7 +487,7 @@ def main():
         print("  3.  Shorts")
         print("  4.  Agendamento")
         print("  5.  Organizar vídeos em playlists")
-        print("  6.  Status do Instagram")
+        print("  6.  Status das Redes Sociais")
         print()
         print("  0.  Sair")
         print()
@@ -512,21 +512,38 @@ def main():
                 organize_existing_videos()
             aguardar()
         elif op == "6":
-            cabecalho("-- INSTAGRAM --")
+            cabecalho("-- REDES SOCIAIS --")
+
+            # Instagram
             from instagram_uploader import INSTAGRAM_ENABLED
+            print("  INSTAGRAM")
             if INSTAGRAM_ENABLED:
-                print("  Status: ATIVO")
-                print("  Credenciais configuradas no .env")
-                print()
-                print("  O Instagram é acionado automaticamente ao publicar:")
-                print("    - Shorts -> Reel no Instagram")
-                print("    - Notícias -> Thumbnail como post no feed")
+                print("    Status: ATIVO")
+                print("    Credenciais configuradas no .env")
             else:
-                print("  Status: INATIVO")
-                print()
-                print("  Para ativar, adicione no .env:")
-                print("    INSTAGRAM_USERNAME=seu_usuario")
-                print("    INSTAGRAM_PASSWORD=sua_senha")
+                print("    Status: INATIVO")
+                print("    Para ativar, adicione no .env:")
+                print("      INSTAGRAM_USERNAME=seu_usuario")
+                print("      INSTAGRAM_PASSWORD=sua_senha")
+
+            print()
+
+            # TikTok
+            from tiktok_uploader import TIKTOK_ENABLED
+            print("  TIKTOK")
+            if TIKTOK_ENABLED:
+                print("    Status: ATIVO")
+                print("    Cookies configurados")
+            else:
+                print("    Status: INATIVO")
+                print("    Para ativar:")
+                print("      1. Faça login no TikTok pelo navegador")
+                print("      2. Exporte cookies (extensão 'Get cookies.txt LOCALLY')")
+                print("      3. Salve como tiktok_cookies.txt na raiz do projeto")
+
+            print()
+            print("  Ao publicar Shorts, o upload é automático para:")
+            print("    YouTube → Instagram (Reel) → TikTok")
             aguardar()
         elif op == "0":
             cls()

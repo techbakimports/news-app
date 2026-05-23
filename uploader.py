@@ -162,8 +162,17 @@ def upload_thumbnail(video_id: str, thumb_path: str) -> bool:
         return False
 
 
+def _shorten_url(url: str) -> str:
+    """Remove parâmetros e fragmentos desnecessários para encurtar a URL."""
+    from urllib.parse import urlparse, urlunparse
+    parsed = urlparse(url)
+    # Remove query string e fragmento — deixa só o path limpo
+    clean = urlunparse((parsed.scheme, parsed.netloc, parsed.path.rstrip("/"), "", "", ""))
+    return clean
+
+
 def build_description(news_items, date_str):
-    """Gera descrição automática com as categorias e fontes do episódio."""
+    """Gera descrição automática com as categorias, fontes e links do episódio."""
     lines = [
         f"Resumo automático de notícias do dia {date_str}.",
         "",
@@ -173,8 +182,14 @@ def build_description(news_items, date_str):
         cat = item.get("category", "Notícia")
         title = item.get("title", "")
         source = item.get("source", "")
-        lines.append(f"• [{cat}] {title} — {source}")
+        link = item.get("link", "")
+        line = f"• [{cat}] {title} — {source}"
+        if link:
+            line += f"\n  {_shorten_url(link)}"
+        lines.append(line)
     lines += [
+        "",
+        "Para ver cada notícia na íntegra, clique nos links acima.",
         "",
         "Notícias coletadas automaticamente de fontes públicas brasileiras.",
         "#noticias #brasil #resumodenoticias",

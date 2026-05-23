@@ -37,6 +37,7 @@ news_sync/
 token.json
 client_secrets.json
 ig_session.json
+tiktok_cookies.txt
 scheduler.json
 
 # IDE

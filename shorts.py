@@ -312,6 +312,15 @@ async def generate_short(item: dict, upload: bool = True, privacy: str = "public
                     )
                     upload_reel(output_path, ig_caption)
 
+            # TikTok — mesmo vídeo vertical
+            from config import TIKTOK_UPLOAD
+            if TIKTOK_UPLOAD:
+                from tiktok_uploader import upload_video as tiktok_upload, TIKTOK_ENABLED
+                if TIKTOK_ENABLED:
+                    tk_hashtags = ["noticias", "brasil", "newsapp", category.lower().replace(" ", "")]
+                    tk_desc = f"{title}\n\n{summary}\n\nFonte: {source}"
+                    tiktok_upload(output_path, tk_desc, tk_hashtags)
+
             try:
                 os.remove(output_path)
             except Exception:
@@ -439,6 +448,18 @@ def generate_short_from_video(
                     + f"\n\n#noticias #brasil #newsapp #resumo"
                 )
                 upload_reel(output_path, ig_caption)
+
+        # TikTok — mesmo vídeo vertical
+        from config import TIKTOK_UPLOAD
+        if TIKTOK_UPLOAD:
+            from tiktok_uploader import upload_video as tiktok_upload, TIKTOK_ENABLED
+            if TIKTOK_ENABLED:
+                tk_desc = (
+                    f"{title}\n\n"
+                    + "\n".join(f"- {it.get('title', '')}" for it in items[:3])
+                )
+                tk_hashtags = ["noticias", "brasil", "newsapp", "resumo"]
+                tiktok_upload(output_path, tk_desc, tk_hashtags)
 
         try:
             os.remove(output_path)

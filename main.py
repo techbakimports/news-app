@@ -158,16 +158,27 @@ async def run_news_cycle():
 
     # 6. Gerar áudio por segmento com Edge TTS (sync exato por notícia)
     intro_text = "Bem-vindo ao seu resumo de notícias automatizado."
+    outro_text = (
+        "Essas foram as principais notícias de hoje. "
+        "Para ler cada notícia completa, acesse os links na descrição do vídeo. "
+        "Se gostou, se inscreva no canal e ative o sininho para não perder nenhum resumo. "
+        "Até a próxima!"
+    )
     segment_texts = [intro_text] + [
         item.get("ai_summary") or f"{item['title']} — Fonte: {item['source']}"
         for item in items_to_process
-    ]
+    ] + [outro_text]
     print("\nGerando áudio por segmento com Edge TTS...")
     audio_path, all_durations = await generate_audio_segments(
         segment_texts, AUDIO_OUTPUT_DIR, filename_base
     )
     intro_duration = all_durations[0]
+    # Último segmento é o outro (CTA) — agregar ao último slide de notícia
+    # para que o visual fique na última notícia enquanto o CTA é falado
     news_durations = list(all_durations[1:])
+    if len(news_durations) > len(items_to_process):
+        outro_dur = news_durations.pop()
+        news_durations[-1] += outro_dur
 
     # 7. Copiar áudio para o Google Drive
     drive_audio_path = os.path.join(DRIVE_SYNC_DIR, f"{filename_base}.mp3")
