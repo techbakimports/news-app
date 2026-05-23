@@ -539,7 +539,7 @@ def main():
                 print("    Para ativar:")
                 print("      1. Faça login no TikTok pelo navegador")
                 print("      2. Exporte cookies (extensão 'Get cookies.txt LOCALLY')")
-                print("      3. Salve como tiktok_cookies.txt na raiz do projeto")
+                print("      3. Salve como tiktok_cookies.json na raiz do projeto")
 
             print()
             print("  Ao publicar Shorts, o upload é automático para:")
