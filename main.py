@@ -5,6 +5,10 @@ import os
 import shutil
 import time
 from datetime import datetime, timedelta
+from dotenv import load_dotenv
+
+load_dotenv()
+
 from fetcher import fetch_latest_news, extract_article_content, select_unique_news
 from summarizer import summarize_news_batch
 try:

@@ -107,12 +107,14 @@ def _salvar_cfg(cfg: dict) -> None:
 
 
 def _cmd_noticias(privado: bool) -> str:
-    cmd = f'"{PYTHON}" "{BASE_DIR / "main.py"}"'
+    cd = f"cd {BASE_DIR} &&" if not IS_WINDOWS else ""
+    cmd = f'{cd} "{PYTHON}" "{BASE_DIR / "main.py"}"'
     return cmd + " --privado" if privado else cmd
 
 
 def _cmd_audio(tipo: str, horas: float, privado: bool) -> str:
-    cmd = f'"{PYTHON}" "{BASE_DIR / "ambient_video.py"}" {tipo} --horas {horas}'
+    cd = f"cd {BASE_DIR} &&" if not IS_WINDOWS else ""
+    cmd = f'{cd} "{PYTHON}" "{BASE_DIR / "ambient_video.py"}" {tipo} --horas {horas}'
     return cmd + " --privado" if privado else cmd
 
 

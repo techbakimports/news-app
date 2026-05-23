@@ -153,13 +153,15 @@ def _validar_horario(h):
 
 def _cmd_noticias(privado):
     script = os.path.join(BASE_DIR, "main.py")
-    cmd = f'"{PYTHON}" "{script}"'
+    cd = f"cd {BASE_DIR} &&" if not IS_WINDOWS else ""
+    cmd = f'{cd} "{PYTHON}" "{script}"'
     return cmd + " --privado" if privado else cmd
 
 
 def _cmd_audio(tipo, horas, privado):
     script = os.path.join(BASE_DIR, "ambient_video.py")
-    cmd = f'"{PYTHON}" "{script}" {tipo} --horas {horas}'
+    cd = f"cd {BASE_DIR} &&" if not IS_WINDOWS else ""
+    cmd = f'{cd} "{PYTHON}" "{script}" {tipo} --horas {horas}'
     return cmd + " --privado" if privado else cmd
 
 
