@@ -9,7 +9,7 @@ Autenticação via .env:
   INSTAGRAM_USERNAME=seu_usuario
   INSTAGRAM_PASSWORD=sua_senha
 
-A sessão é salva em ig_session.json para evitar login repetido.
+A sessão é salva em credentials/ig_session.json para evitar login repetido.
 """
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ load_dotenv()
 
 _USERNAME = os.environ.get("INSTAGRAM_USERNAME", "")
 _PASSWORD = os.environ.get("INSTAGRAM_PASSWORD", "")
-SESSION_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ig_session.json")
+SESSION_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "credentials", "ig_session.json")
 
 # Flag global — desativa Instagram se credenciais não existirem
 INSTAGRAM_ENABLED = bool(_USERNAME and _PASSWORD)

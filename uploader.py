@@ -10,8 +10,9 @@ from googleapiclient.http import MediaFileUpload
 from googleapiclient.errors import HttpError
 
 SCOPES = ["https://www.googleapis.com/auth/youtube"]  # cobre upload + playlists
-TOKEN_FILE = "token.json"
-SECRETS_FILE = "client_secrets.json"
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+TOKEN_FILE = os.path.join(_BASE_DIR, "credentials", "token.json")
+SECRETS_FILE = os.path.join(_BASE_DIR, "credentials", "client_secrets.json")
 
 YOUTUBE_CATEGORY_NEWS = "25"  # Notícias e Política
 

@@ -4,7 +4,7 @@ Upload para TikTok via tiktok-uploader (Playwright).
 Autenticação via cookies do browser:
   1. Faça login no TikTok pelo navegador
   2. Exporte os cookies com a extensão "Get cookies.txt LOCALLY"
-  3. Salve como tiktok_cookies.json na raiz do projeto
+  3. Salve como credentials/tiktok_cookies.json no projeto
 
 Variável no .env (opcional):
   TIKTOK_COOKIES=caminho/para/cookies.txt   (padrão: tiktok_cookies.json)
@@ -20,7 +20,7 @@ load_dotenv()
 
 _COOKIES_PATH = os.environ.get(
     "TIKTOK_COOKIES",
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "tiktok_cookies.json"),
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "credentials", "tiktok_cookies.json"),
 )
 
 TIKTOK_ENABLED = os.path.exists(_COOKIES_PATH)

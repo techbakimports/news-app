@@ -33,11 +33,8 @@ news_sync/
 *.mp4
 *.wav
 
-# Auth / sessões
-token.json
-client_secrets.json
-ig_session.json
-tiktok_cookies.json
+# Auth / sessões / credenciais
+credentials/
 scheduler.json
 
 # IDE
