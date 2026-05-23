@@ -161,6 +161,7 @@ def kb_main() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("⏰ Agendamento",           callback_data="nav|agenda")],
         [InlineKeyboardButton("📂 Organizar Playlists",  callback_data="run|playlists")],
         [InlineKeyboardButton("📸 Status Instagram",     callback_data="nav|instagram")],
+        [InlineKeyboardButton("🎵 Status TikTok",        callback_data="nav|tiktok")],
     ])
 
 
@@ -394,6 +395,26 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 detail = "\nAdicione no .env:\n<code>INSTAGRAM_USERNAME=\nINSTAGRAM_PASSWORD=</code>"
             await q.edit_message_text(
                 f"📸 Instagram\n\n{status}{detail}",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("⬅️ Voltar", callback_data="nav|main")],
+                ]),
+                parse_mode="HTML",
+            )
+        elif dest == "tiktok":
+            from tiktok_uploader import TIKTOK_ENABLED
+            if TIKTOK_ENABLED:
+                status = "✅ <b>ATIVO</b> — cookies configurados"
+                detail = "\nPosts automáticos:\n• Shorts → Vídeo no TikTok"
+            else:
+                status = "❌ <b>INATIVO</b>"
+                detail = (
+                    "\nPara ativar:"
+                    "\n1. Login no TikTok pelo browser"
+                    "\n2. Exporte cookies (extensão Get cookies.txt LOCALLY)"
+                    "\n3. Salve em <code>credentials/tiktok_cookies.json</code>"
+                )
+            await q.edit_message_text(
+                f"🎵 TikTok\n\n{status}{detail}",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("⬅️ Voltar", callback_data="nav|main")],
                 ]),
