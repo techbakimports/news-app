@@ -18,6 +18,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from html import escape as html_escape
+
 from dotenv import load_dotenv
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.error import RetryAfter
@@ -162,6 +164,7 @@ def kb_main() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("📂 Organizar Playlists",  callback_data="run|playlists")],
         [InlineKeyboardButton("📸 Status Instagram",     callback_data="nav|instagram")],
         [InlineKeyboardButton("🎵 Status TikTok",        callback_data="nav|tiktok")],
+        [InlineKeyboardButton("🔬 Tech Digest",          callback_data="run|tech_digest")],
     ])
 
 
@@ -345,6 +348,52 @@ async def _run_pipeline(chat_id: int, bot, cmd: list, descricao: str, msg=None) 
     await _editar(texto)
 
 
+# ── tech digest (execução inline, não subprocess) ────────────────────────────
+
+async def _run_tech_digest(chat_id: int, bot, msg) -> None:
+    try:
+        await msg.edit_text(
+            "🔬 <b>Tech Digest</b>\n\n⏳ Iniciando...",
+            parse_mode="HTML",
+        )
+    except Exception:
+        msg = await bot.send_message(
+            chat_id,
+            "🔬 <b>Tech Digest</b>\n\n⏳ Iniciando...",
+            parse_mode="HTML",
+        )
+
+    last_status = ""
+
+    async def on_progress(status: str):
+        nonlocal last_status
+        last_status = status
+        await _safe_edit(msg, f"🔬 <b>Tech Digest</b>\n\n⏳ {html_escape(status)}")
+
+    try:
+        from tech_news_digest import generate_tech_digest
+        result = await generate_tech_digest(on_progress=on_progress)
+    except Exception as exc:
+        await _safe_edit(msg, f"🔬 <b>Tech Digest</b>\n\n❌ Erro: {html_escape(str(exc))}")
+        return
+
+    header = "🔬 <b>Tech Digest — Notícias de Tecnologia</b>\n\n"
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔄 Gerar novamente", callback_data="run|tech_digest")],
+        [InlineKeyboardButton("⬅️ Voltar",           callback_data="nav|main")],
+    ])
+
+    max_len = 4096 - len(header) - 50
+    escaped = html_escape(result)
+    if len(escaped) > max_len:
+        escaped = escaped[:max_len] + "\n\n<i>… (truncado)</i>"
+
+    try:
+        await msg.edit_text(header + escaped, reply_markup=kb, parse_mode="HTML")
+    except Exception:
+        await msg.edit_text(result[:4000], reply_markup=kb)
+
+
 # ── handlers ──────────────────────────────────────────────────────────────────
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -523,6 +572,11 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 async def _handle_run(q, context, parts: list) -> None:
     tipo    = parts[0]
     chat_id = q.message.chat_id
+
+    # -- tech digest --
+    if tipo == "tech_digest":
+        asyncio.create_task(_run_tech_digest(chat_id, context.bot, q.message))
+        return
 
     # -- notícias --
     if tipo == "noticias":
