@@ -45,7 +45,7 @@ def print(*args, **kwargs):  # noqa: A001
 
 # True  → NotebookLM gera os resumos (sem limite de API)
 # False → Gemini gera os resumos (limite: 20 req/dia no plano free)
-USE_NOTEBOOKLM_SUMMARIZER = True
+USE_NOTEBOOKLM_SUMMARIZER = False
 
 # Define True para publicar no YouTube após gerar o vídeo.
 YOUTUBE_UPLOAD = True
