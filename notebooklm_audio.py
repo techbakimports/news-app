@@ -4,6 +4,10 @@ from datetime import datetime
 from notebooklm import NotebookLMClient
 from notebooklm._artifacts import AudioFormat, AudioLength
 
+_NOTEBOOKLM_STORAGE = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "credentials", "notebooklm_storage_state.json"
+)
+
 
 async def generate_audio_notebooklm(consolidated_script, output_path, date_str=None):
     """
@@ -22,7 +26,8 @@ async def generate_audio_notebooklm(consolidated_script, output_path, date_str=N
 
     print("\nConectando ao NotebookLM...")
     try:
-        async with NotebookLMClient.from_storage() as client:
+        storage_path = _NOTEBOOKLM_STORAGE if os.path.exists(_NOTEBOOKLM_STORAGE) else None
+        async with NotebookLMClient.from_storage(path=storage_path) as client:
             # 1. Criar notebook temporário
             print(f"  Criando notebook: {notebook_title}")
             notebook = await client.notebooks.create(title=notebook_title)

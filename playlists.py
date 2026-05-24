@@ -12,6 +12,11 @@ PLAYLIST_DEFS = {
         "description": "Resumos automáticos de notícias do Brasil, gerados diariamente.",
         "keywords": ["resumo de notícias", "notícias —"],
     },
+    "tech": {
+        "title": "Notícias de Tecnologia 💻",
+        "description": "Resumo diário das principais notícias de tecnologia do Brasil e do mundo.",
+        "keywords": ["noticias de tecnologia", "tech news"],
+    },
     "rain": {
         "title": "Chuva para Dormir e Relaxar 🌧️",
         "description": "Horas de sons de chuva para dormir, estudar e relaxar.",

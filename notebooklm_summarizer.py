@@ -1,6 +1,11 @@
 import asyncio
+import os
 from datetime import datetime
 from notebooklm import NotebookLMClient
+
+_NOTEBOOKLM_STORAGE = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "credentials", "notebooklm_storage_state.json"
+)
 
 
 async def summarize_news_notebooklm(news_items):
@@ -18,7 +23,8 @@ async def summarize_news_notebooklm(news_items):
 
     print("\nIniciando resumo via NotebookLM...")
     try:
-        client = await NotebookLMClient.from_storage()
+        storage_path = _NOTEBOOKLM_STORAGE if os.path.exists(_NOTEBOOKLM_STORAGE) else None
+        client = await NotebookLMClient.from_storage(path=storage_path)
         async with client:
             # 1. Criar notebook temporário
             notebook = await client.notebooks.create(title=f"Notícias {date_str}")

@@ -479,15 +479,41 @@ def menu_shorts():
 
 # -- menu principal ------------------------------------------------------------
 
+def menu_tech_news():
+    while True:
+        cabecalho("-- NOTICIAS DE TECNOLOGIA --")
+        print("  Pipeline: NotebookLM (10 sites) -> TTS -> Video -> YouTube")
+        print()
+        print("  1.  Executar pipeline completo")
+        print("  2.  Executar sem upload (so gera video local)")
+        print("  3.  Executar e publicar como privado")
+        print()
+        print("  0.  Voltar")
+        print()
+        op = input("  Escolha: ").strip()
+
+        if op == "1":
+            rodar([PYTHON, "tech_news.py"], "Tech News via NotebookLM -> YouTube publico")
+        elif op == "2":
+            rodar([PYTHON, "tech_news.py", "--sem-upload"], "Tech News (sem upload)")
+        elif op == "3":
+            rodar([PYTHON, "tech_news.py", "--privado"], "Tech News -> YouTube privado")
+        elif op == "0":
+            return
+        else:
+            input("  Opcao invalida. [Enter]")
+
+
 def main():
     while True:
         cabecalho()
-        print("  1.  Postar Notícias")
-        print("  2.  Postar Áudio Longo")
+        print("  1.  Postar Noticias")
+        print("  2.  Postar Audio Longo")
         print("  3.  Shorts")
-        print("  4.  Agendamento")
-        print("  5.  Organizar vídeos em playlists")
-        print("  6.  Status das Redes Sociais")
+        print("  4.  Noticias de Tecnologia (NotebookLM)")
+        print("  5.  Agendamento")
+        print("  6.  Organizar videos em playlists")
+        print("  7.  Status das Redes Sociais")
         print()
         print("  0.  Sair")
         print()
@@ -500,18 +526,20 @@ def main():
         elif op == "3":
             menu_shorts()
         elif op == "4":
-            menu_agendamento()
+            menu_tech_news()
         elif op == "5":
+            menu_agendamento()
+        elif op == "6":
             cabecalho("-- ORGANIZAR PLAYLISTS --")
-            print("  Isso vai listar todos os vídeos do canal e")
-            print("  adicioná-los às playlists correspondentes.\n")
+            print("  Isso vai listar todos os videos do canal e")
+            print("  adiciona-los as playlists correspondentes.\n")
             confirmar = input("  Continuar? (S/n): ").strip().lower()
             if confirmar != "n":
                 print()
                 from playlists import organize_existing_videos
                 organize_existing_videos()
             aguardar()
-        elif op == "6":
+        elif op == "7":
             cabecalho("-- REDES SOCIAIS --")
 
             # Instagram

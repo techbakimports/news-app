@@ -5,9 +5,14 @@ pede um resumo das principais notícias do dia, retorna o texto
 e deleta o notebook para permitir reutilização.
 """
 import asyncio
+import os
 from datetime import datetime
 
 from notebooklm import NotebookLMClient
+
+_NOTEBOOKLM_STORAGE = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "credentials", "notebooklm_storage_state.json"
+)
 
 TECH_SITES = [
     "https://www.tecmundo.com.br",
@@ -38,9 +43,12 @@ async def generate_tech_digest(on_progress=None) -> str:
 
     try:
         await _progress("Conectando ao NotebookLM...")
-        client = await NotebookLMClient.from_storage()
+        storage_path = _NOTEBOOKLM_STORAGE if os.path.exists(_NOTEBOOKLM_STORAGE) else None
+        client = await NotebookLMClient.from_storage(path=storage_path)
     except FileNotFoundError:
         return "Autenticacao NotebookLM nao encontrada.\nExecute: notebooklm login"
+    except ValueError as e:
+        return f"Sessao NotebookLM expirada.\nExecute: notebooklm login\n\nErro: {e}"
 
     async with client:
         notebook = await client.notebooks.create(title=f"Tech Digest {date_str}")

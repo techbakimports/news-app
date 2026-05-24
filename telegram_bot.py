@@ -165,6 +165,7 @@ def kb_main() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("📸 Status Instagram",     callback_data="nav|instagram")],
         [InlineKeyboardButton("🎵 Status TikTok",        callback_data="nav|tiktok")],
         [InlineKeyboardButton("🔬 Tech Digest",          callback_data="run|tech_digest")],
+        [InlineKeyboardButton("💻 Tech News (Video)",    callback_data="nav|tech_news")],
     ])
 
 
@@ -173,6 +174,15 @@ def kb_noticias() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("▶️ Pipeline completo",      callback_data="run|noticias|pub")],
         [InlineKeyboardButton("💾 Só gerar (sem upload)",  callback_data="run|noticias|local")],
         [InlineKeyboardButton("🔒 Publicar como privado",  callback_data="run|noticias|priv")],
+        [InlineKeyboardButton("⬅️ Voltar",                 callback_data="nav|main")],
+    ])
+
+
+def kb_tech_news() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("▶️ Pipeline completo",      callback_data="run|tech_news|pub")],
+        [InlineKeyboardButton("💾 Só gerar (sem upload)",  callback_data="run|tech_news|local")],
+        [InlineKeyboardButton("🔒 Publicar como privado",  callback_data="run|tech_news|priv")],
         [InlineKeyboardButton("⬅️ Voltar",                 callback_data="nav|main")],
     ])
 
@@ -432,6 +442,12 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             )
         elif dest == "shorts":
             await q.edit_message_text("📱 <b>Shorts</b>", reply_markup=kb_shorts(), parse_mode="HTML")
+        elif dest == "tech_news":
+            await q.edit_message_text(
+                "💻 <b>Notícias de Tecnologia</b>\n"
+                "Pipeline: NotebookLM → TTS → Vídeo → YouTube",
+                reply_markup=kb_tech_news(), parse_mode="HTML",
+            )
         elif dest == "agenda":
             await q.edit_message_text("⏰ <b>Agendamento</b>", reply_markup=kb_agenda(), parse_mode="HTML")
         elif dest == "instagram":
@@ -587,6 +603,18 @@ async def _handle_run(q, context, parts: list) -> None:
         elif visib == "local":
             cmd.append("--sem-upload")
         descricao = f"Notícias → YouTube {_VISIB_LABEL[visib]}"
+        asyncio.create_task(_run_pipeline(chat_id, context.bot, cmd, descricao, q.message))
+        return
+
+    # -- tech news (vídeo completo via NotebookLM) --
+    if tipo == "tech_news":
+        visib = parts[1]
+        cmd   = [PYTHON, str(BASE_DIR / "tech_news.py")]
+        if visib == "priv":
+            cmd.append("--privado")
+        elif visib == "local":
+            cmd.append("--sem-upload")
+        descricao = f"Tech News → YouTube {_VISIB_LABEL[visib]}"
         asyncio.create_task(_run_pipeline(chat_id, context.bot, cmd, descricao, q.message))
         return
 
