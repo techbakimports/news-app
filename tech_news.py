@@ -78,6 +78,20 @@ _NOTEBOOKLM_STORAGE = os.path.join(
 )
 
 
+def _notify_session_expired():
+    """Envia notificacao Telegram quando a sessao NotebookLM expira."""
+    try:
+        from telegram_notifier import notify
+        notify(
+            "🔑 <b>Sessao NotebookLM expirada!</b>\n\n"
+            "Auto-refresh falhou.\n"
+            "1. Rode <code>notebooklm login</code> no PC\n"
+            "2. Envie o <code>storage_state.json</code> aqui neste chat"
+        )
+    except Exception:
+        pass
+
+
 async def fetch_tech_news_notebooklm(on_progress=None):
     """
     Usa NotebookLM para buscar e estruturar noticias de tecnologia.
@@ -97,9 +111,24 @@ async def fetch_tech_news_notebooklm(on_progress=None):
     try:
         client = await NotebookLMClient.from_storage(path=storage_path)
     except (FileNotFoundError, ValueError) as e:
-        print(f"Erro: autenticacao NotebookLM falhou: {e}")
-        print("Execute: notebooklm login")
-        return None
+        await _progress(f"Sessao expirada: {e}")
+        await _progress("Tentando auto-refresh...")
+        # Tenta renovar via browser profile persistente
+        try:
+            from notebooklm_session import refresh
+            if refresh(verbose=True):
+                await _progress("Sessao renovada! Reconectando...")
+                storage_path = _NOTEBOOKLM_STORAGE if os.path.exists(_NOTEBOOKLM_STORAGE) else None
+                client = await NotebookLMClient.from_storage(path=storage_path)
+            else:
+                print("Auto-refresh falhou. Execute: notebooklm login")
+                _notify_session_expired()
+                return None
+        except Exception as refresh_err:
+            print(f"Erro no auto-refresh: {refresh_err}")
+            print("Execute: notebooklm login")
+            _notify_session_expired()
+            return None
 
     async with client:
         notebook = await client.notebooks.create(title=f"Tech News {date_str}")

@@ -47,8 +47,18 @@ async def generate_tech_digest(on_progress=None) -> str:
         client = await NotebookLMClient.from_storage(path=storage_path)
     except FileNotFoundError:
         return "Autenticacao NotebookLM nao encontrada.\nExecute: notebooklm login"
-    except ValueError as e:
-        return f"Sessao NotebookLM expirada.\nExecute: notebooklm login\n\nErro: {e}"
+    except ValueError:
+        await _progress("Sessao expirada. Tentando auto-refresh...")
+        try:
+            from notebooklm_session import refresh
+            if refresh(verbose=False):
+                await _progress("Sessao renovada!")
+                storage_path = _NOTEBOOKLM_STORAGE if os.path.exists(_NOTEBOOKLM_STORAGE) else None
+                client = await NotebookLMClient.from_storage(path=storage_path)
+            else:
+                return "Sessao NotebookLM expirada e auto-refresh falhou.\nExecute: notebooklm login"
+        except Exception as e:
+            return f"Sessao expirada e auto-refresh falhou: {e}\nExecute: notebooklm login"
 
     async with client:
         notebook = await client.notebooks.create(title=f"Tech Digest {date_str}")

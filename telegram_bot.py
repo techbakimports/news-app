@@ -23,7 +23,7 @@ from html import escape as html_escape
 from dotenv import load_dotenv
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.error import RetryAfter
-from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
+from telegram.ext import Application, CallbackQueryHandler, CommandHandler, MessageHandler, ContextTypes, filters
 
 load_dotenv()
 
@@ -53,7 +53,7 @@ _tg_last_edit: float = 0.0
 _TG_MIN_GAP = 3.5  # segundos mínimos entre chamadas consecutivas
 
 
-async def _safe_edit(msg, text: str) -> None:
+async def _safe_edit(msg, text: str, **kwargs) -> None:
     """Edita mensagem com rate-limit global (máx ~17 edições/min)."""
     global _tg_edit_lock, _tg_last_edit
     if _tg_edit_lock is None:
@@ -64,7 +64,7 @@ async def _safe_edit(msg, text: str) -> None:
         if gap > 0:
             await asyncio.sleep(gap)
         try:
-            await msg.edit_text(text, parse_mode="HTML")
+            await msg.edit_text(text, parse_mode="HTML", **kwargs)
             _tg_last_edit = loop.time()
         except RetryAfter as e:
             await asyncio.sleep(e.retry_after + 1)
@@ -166,6 +166,7 @@ def kb_main() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("🎵 Status TikTok",        callback_data="nav|tiktok")],
         [InlineKeyboardButton("🔬 Tech Digest",          callback_data="run|tech_digest")],
         [InlineKeyboardButton("💻 Tech News (Video)",    callback_data="nav|tech_news")],
+        [InlineKeyboardButton("🔑 Sessão NotebookLM",   callback_data="run|nlm_check")],
     ])
 
 
@@ -356,6 +357,53 @@ async def _run_pipeline(chat_id: int, bot, cmd: list, descricao: str, msg=None) 
         texto = f"❌ Erro interno: {exc}"
 
     await _editar(texto)
+
+
+# ── check/refresh sessão NotebookLM ───────────────────────────────────────────
+
+async def _run_nlm_check(chat_id: int, bot, msg) -> None:
+    try:
+        await msg.edit_text(
+            "🔑 <b>Sessão NotebookLM</b>\n\n⏳ Verificando...",
+            parse_mode="HTML",
+        )
+    except Exception:
+        msg = await bot.send_message(
+            chat_id,
+            "🔑 <b>Sessão NotebookLM</b>\n\n⏳ Verificando...",
+            parse_mode="HTML",
+        )
+
+    try:
+        from notebooklm_session import check, refresh as nlm_refresh
+        is_active = await check(verbose=False)
+
+        if is_active:
+            text = "🔑 <b>Sessão NotebookLM</b>\n\n✅ Sessão ATIVA"
+        else:
+            await _safe_edit(msg, "🔑 <b>Sessão NotebookLM</b>\n\n❌ Expirada — tentando auto-refresh...")
+            success = await asyncio.to_thread(nlm_refresh, True)
+            if success:
+                text = "🔑 <b>Sessão NotebookLM</b>\n\n✅ Sessão RENOVADA com sucesso!"
+            else:
+                text = (
+                    "🔑 <b>Sessão NotebookLM</b>\n\n"
+                    "❌ Sessão expirada e auto-refresh falhou.\n\n"
+                    "<b>Como renovar:</b>\n"
+                    "1. No PC com tela, rode:\n"
+                    "   <code>notebooklm login</code>\n"
+                    "2. Envie o arquivo aqui neste chat:\n"
+                    "   <code>storage_state.json</code>\n"
+                    "   (está em ~/.notebooklm/profiles/default/)"
+                )
+    except Exception as exc:
+        text = f"🔑 <b>Sessão NotebookLM</b>\n\n⚠️ Erro: {html_escape(str(exc))}"
+
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔄 Verificar novamente", callback_data="run|nlm_check")],
+        [InlineKeyboardButton("⬅️ Voltar",              callback_data="nav|main")],
+    ])
+    await _safe_edit(msg, text, reply_markup=kb)
 
 
 # ── tech digest (execução inline, não subprocess) ────────────────────────────
@@ -589,6 +637,11 @@ async def _handle_run(q, context, parts: list) -> None:
     tipo    = parts[0]
     chat_id = q.message.chat_id
 
+    # -- check/refresh sessão NotebookLM --
+    if tipo == "nlm_check":
+        asyncio.create_task(_run_nlm_check(chat_id, context.bot, q.message))
+        return
+
     # -- tech digest --
     if tipo == "tech_digest":
         asyncio.create_task(_run_tech_digest(chat_id, context.bot, q.message))
@@ -719,6 +772,56 @@ async def _handle_run(q, context, parts: list) -> None:
             return
 
 
+# ── receber arquivo de credenciais via Telegram ──────────────────────────────
+
+_ACCEPTED_CREDENTIAL_FILES = {
+    "storage_state.json": "notebooklm_storage_state.json",
+    "notebooklm_storage_state.json": "notebooklm_storage_state.json",
+    "tiktok_cookies.json": "tiktok_cookies.json",
+    "ig_session.json": "ig_session.json",
+}
+
+
+async def on_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Recebe arquivos de credenciais enviados pelo chat e salva em credentials/."""
+    msg = update.message
+    if not msg or not msg.document:
+        return
+    if str(msg.chat_id) != str(CHAT_ID):
+        return
+
+    filename = msg.document.file_name or ""
+    target_name = _ACCEPTED_CREDENTIAL_FILES.get(filename)
+
+    if not target_name:
+        await msg.reply_text(
+            f"⚠️ Arquivo <code>{html_escape(filename)}</code> não reconhecido.\n\n"
+            "Arquivos aceitos:\n"
+            "• <code>storage_state.json</code> — sessão NotebookLM\n"
+            "• <code>notebooklm_storage_state.json</code> — sessão NotebookLM\n"
+            "• <code>tiktok_cookies.json</code> — cookies TikTok\n"
+            "• <code>ig_session.json</code> — sessão Instagram",
+            parse_mode="HTML",
+        )
+        return
+
+    # Baixar arquivo
+    cred_dir = BASE_DIR / "credentials"
+    cred_dir.mkdir(exist_ok=True)
+    dest_path = cred_dir / target_name
+
+    try:
+        file = await context.bot.get_file(msg.document.file_id)
+        await file.download_to_drive(str(dest_path))
+        await msg.reply_text(
+            f"✅ <code>{target_name}</code> salvo em credentials/\n\n"
+            "Sessão atualizada com sucesso!",
+            parse_mode="HTML",
+        )
+    except Exception as e:
+        await msg.reply_text(f"❌ Erro ao salvar: {html_escape(str(e))}", parse_mode="HTML")
+
+
 # ── main ──────────────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -731,6 +834,7 @@ def main() -> None:
 
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler(["start", "menu"], cmd_start))
+    app.add_handler(MessageHandler(filters.Document.ALL, on_document))
     app.add_handler(CallbackQueryHandler(on_callback))
 
     print(f"Bot iniciado. Aguardando comandos de chat_id={CHAT_ID}…")

@@ -35,8 +35,13 @@ def _get_credentials():
             creds = None
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
+            try:
+                creds.refresh(Request())
+            except Exception as e:
+                print(f"  Refresh token expirado/revogado: {e}")
+                print("  Reautenticando via browser...")
+                creds = None
+        if not creds or not creds.valid:
             if not os.path.exists(SECRETS_FILE):
                 raise FileNotFoundError(
                     f"Arquivo '{SECRETS_FILE}' não encontrado.\n"
