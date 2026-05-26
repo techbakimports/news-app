@@ -1,6 +1,7 @@
 import os
 import pickle
 import socket
+import sys
 import time
 from datetime import datetime, timedelta, timezone
 from google.auth.transport.requests import Request
@@ -42,6 +43,13 @@ def _get_credentials():
                 print("  Reautenticando via browser...")
                 creds = None
         if not creds or not creds.valid:
+            # Sem terminal interativo → falhar rápido (evita travar subprocess)
+            if not sys.stdin or not sys.stdin.isatty():
+                raise RuntimeError(
+                    "Token YouTube expirado/revogado. Reautenticação interativa "
+                    "não disponível (sem terminal).\n"
+                    "Envie credentials/token.json atualizado pelo bot Telegram."
+                )
             if not os.path.exists(SECRETS_FILE):
                 raise FileNotFoundError(
                     f"Arquivo '{SECRETS_FILE}' não encontrado.\n"

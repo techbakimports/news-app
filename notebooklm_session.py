@@ -359,6 +359,145 @@ async def check_all(verbose: bool = True) -> dict:
     return results
 
 
+# -- Verificação rápida pré-pipeline ------------------------------------------
+
+TIKTOK_COOKIE_WARN_DAYS = 14
+
+
+def check_gemini(verbose: bool = True) -> bool:
+    """Verifica se a API key do Gemini esta configurada."""
+    from dotenv import load_dotenv
+    load_dotenv()
+    key = os.environ.get("GEMINI_API_KEY", "")
+    if not key:
+        if verbose:
+            print("❌ Gemini: GEMINI_API_KEY ausente no .env")
+        return False
+    if verbose:
+        print("✅ Gemini: API key configurada")
+    return True
+
+
+def check_notebooklm_quick(verbose: bool = True) -> bool:
+    """Verifica rapida: arquivo de sessao existe e nao e muito antigo (< 7 dias)."""
+    for path in (CREDENTIALS_STORAGE, DEFAULT_STORAGE):
+        if path.exists():
+            age_days = (time.time() - os.path.getmtime(path)) / 86400
+            if verbose:
+                if age_days > 7:
+                    print(f"⚠️  NotebookLM: sessao com {int(age_days)} dias — pode ter expirado")
+                else:
+                    print(f"✅ NotebookLM: sessao presente ({int(age_days)}d)")
+            return age_days <= 7
+    if verbose:
+        print("❌ NotebookLM: sessao nao encontrada")
+    return False
+
+
+def preflight_check(pipeline: str, upload: bool = True, verbose: bool = True) -> dict:
+    """
+    Verifica credenciais necessarias antes de iniciar um pipeline.
+
+    Args:
+        pipeline: "noticias", "audio", "shorts", "tech_news"
+        upload: True se vai fazer upload (False para --sem-upload)
+        verbose: True para imprimir detalhes
+
+    Returns:
+        {"ok": bool, "critical": list[str], "warnings": list[str]}
+    """
+    critical = []
+    warnings = []
+
+    needs_youtube = upload and pipeline in ("noticias", "audio", "shorts", "tech_news")
+    needs_instagram = upload and pipeline in ("noticias", "shorts")
+    needs_tiktok = upload and pipeline in ("shorts",)
+    needs_gemini = pipeline in ("noticias", "shorts")
+    needs_notebooklm = pipeline in ("tech_news",)
+
+    if verbose:
+        print()
+        print("=" * 45)
+        print("   VERIFICAÇÃO PRÉ-PIPELINE")
+        print("=" * 45)
+        print()
+
+    # YouTube
+    if needs_youtube:
+        try:
+            if not check_youtube(verbose=verbose):
+                critical.append("YouTube: token expirado — upload vai falhar")
+        except Exception as e:
+            critical.append(f"YouTube: erro na verificação — {e}")
+        if verbose:
+            print()
+
+    # Gemini API key
+    if needs_gemini:
+        if not check_gemini(verbose=verbose):
+            critical.append("Gemini: API key ausente — resumos vão falhar")
+        if verbose:
+            print()
+
+    # NotebookLM (verificação rapida por arquivo — so para tech_news)
+    if needs_notebooklm:
+        if not check_notebooklm_quick(verbose=verbose):
+            critical.append("NotebookLM: sessão ausente ou expirada — pipeline vai falhar")
+        if verbose:
+            print()
+
+    # Instagram (opcional — so warning)
+    if needs_instagram:
+        try:
+            ig = check_instagram(verbose=verbose)
+            if ig is False:
+                warnings.append("Instagram: problema na sessão")
+        except Exception:
+            warnings.append("Instagram: erro na verificação")
+        if verbose:
+            print()
+
+    # TikTok (opcional — so warning)
+    if needs_tiktok:
+        try:
+            tk = check_tiktok(verbose=verbose)
+            if tk:
+                cookies_file = BASE_DIR / "credentials" / "tiktok_cookies.json"
+                if cookies_file.exists():
+                    age_days = (time.time() - os.path.getmtime(cookies_file)) / 86400
+                    if age_days > TIKTOK_COOKIE_WARN_DAYS:
+                        warnings.append(
+                            f"TikTok: cookies com {int(age_days)} dias — podem ter expirado"
+                        )
+        except Exception:
+            warnings.append("TikTok: erro na verificação")
+        if verbose:
+            print()
+
+    ok = len(critical) == 0
+
+    if verbose:
+        print("-" * 45)
+        if ok and not warnings:
+            print("   ✅ Tudo pronto!")
+        elif ok:
+            print("   ⚠️  Pronto, mas com avisos:")
+            for w in warnings:
+                print(f"      • {w}")
+        else:
+            print("   ❌ PROBLEMAS CRÍTICOS:")
+            for c in critical:
+                print(f"      • {c}")
+            if warnings:
+                print("   ⚠️  Avisos:")
+                for w in warnings:
+                    print(f"      • {w}")
+        print("-" * 45)
+        print()
+
+    return {"ok": ok, "critical": critical, "warnings": warnings}
+
+
 # -- Entry point ---------------------------------------------------------------
 
 def main():

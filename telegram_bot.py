@@ -52,6 +52,10 @@ _tg_edit_lock: asyncio.Lock | None = None
 _tg_last_edit: float = 0.0
 _TG_MIN_GAP = 3.5  # segundos mínimos entre chamadas consecutivas
 
+# Proteção contra processos travados
+_PIPELINE_TIMEOUT = 1800  # 30 minutos max por pipeline
+_active_pipelines: int = 0
+
 
 async def _safe_edit(msg, text: str, **kwargs) -> None:
     """Edita mensagem com rate-limit global (máx ~17 edições/min)."""
@@ -280,6 +284,8 @@ def _kb_privacidade(prefixo: str, back: str) -> InlineKeyboardMarkup:
 # ── execução de pipelines ─────────────────────────────────────────────────────
 
 async def _run_pipeline(chat_id: int, bot, cmd: list, descricao: str, msg=None) -> None:
+    global _active_pipelines
+
     if msg is None:
         msg = await bot.send_message(chat_id, f"⏳ <b>{descricao}</b>", parse_mode="HTML")
     else:
@@ -288,6 +294,7 @@ async def _run_pipeline(chat_id: int, bot, cmd: list, descricao: str, msg=None) 
         except Exception:
             msg = await bot.send_message(chat_id, f"⏳ <b>{descricao}</b>", parse_mode="HTML")
 
+    _active_pipelines += 1
     lines: list[str] = []
     loop       = asyncio.get_running_loop()
     start_time = loop.time()
@@ -305,6 +312,7 @@ async def _run_pipeline(chat_id: int, bot, cmd: list, descricao: str, msg=None) 
     env["PYTHONUNBUFFERED"] = "1"
 
     texto = f"❌ Erro interno desconhecido"
+    proc = None
     try:
         proc = await asyncio.create_subprocess_exec(
             *cmd,
@@ -342,19 +350,41 @@ async def _run_pipeline(chat_id: int, bot, cmd: list, descricao: str, msg=None) 
 
         reader  = asyncio.create_task(_ler())
         updater = asyncio.create_task(_atualizar())
-        await reader
+
+        # Aguardar com timeout — mata processos travados
+        done, _ = await asyncio.wait({reader}, timeout=_PIPELINE_TIMEOUT)
         updater.cancel()
 
-        await proc.wait()
-        tail = "\n".join(lines[-20:])[:3800]
-
-        if proc.returncode == 0:
-            texto = f"✅ <b>{descricao}</b> concluído!\n\n<code>{tail}</code>"
+        if not done:
+            # Timeout — processo travou, matar
+            proc.kill()
+            reader.cancel()
+            await proc.wait()
+            elapsed = int(loop.time() - start_time)
+            texto = (
+                f"⏰ <b>{descricao}</b> — timeout ({elapsed // 60} min)\n\n"
+                "Processo excedeu o tempo máximo e foi encerrado.\n"
+                "Causa provável: autenticação travada ou processo em loop."
+            )
         else:
-            texto = f"❌ <b>{descricao}</b> falhou (código {proc.returncode})\n\n<code>{tail}</code>"
+            await proc.wait()
+            tail = "\n".join(lines[-20:])[:3800]
+
+            if proc.returncode == 0:
+                texto = f"✅ <b>{descricao}</b> concluído!\n\n<code>{tail}</code>"
+            else:
+                texto = f"❌ <b>{descricao}</b> falhou (código {proc.returncode})\n\n<code>{tail}</code>"
 
     except Exception as exc:
         texto = f"❌ Erro interno: {exc}"
+        if proc and proc.returncode is None:
+            try:
+                proc.kill()
+                await proc.wait()
+            except Exception:
+                pass
+    finally:
+        _active_pipelines -= 1
 
     await _editar(texto)
 
@@ -632,10 +662,83 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await _handle_run(q, context, parts[1:])
         return
 
+    # ── forçar execução após falha no preflight ──────────────────────────────
+    if action == "force":
+        await _handle_run(q, context, parts[1:], force=True)
+        return
 
-async def _handle_run(q, context, parts: list) -> None:
+
+def _get_pipeline_info(parts: list):
+    """Determina (pipeline_name, upload_flag) a partir dos parts do callback.
+    Retorna None se o tipo não precisa de preflight."""
+    tipo = parts[0]
+    if tipo == "noticias" and len(parts) > 1:
+        return ("noticias", parts[1] != "local")
+    elif tipo == "tech_news" and len(parts) > 1:
+        return ("tech_news", parts[1] != "local")
+    elif tipo == "audio" and len(parts) > 3:
+        return ("audio", parts[3] != "local")
+    elif tipo == "shorts" and len(parts) > 2:
+        return ("shorts", parts[2] != "local")
+    return None
+
+
+async def _handle_run(q, context, parts: list, force: bool = False) -> None:
     tipo    = parts[0]
     chat_id = q.message.chat_id
+
+    # ── bloqueio de concorrência (evita acumular processos) ──────────────────
+    if tipo in ("noticias", "tech_news", "audio", "shorts") and _active_pipelines > 0:
+        text = (
+            f"⚠️ Já {'existe' if _active_pipelines == 1 else 'existem'} "
+            f"<b>{_active_pipelines}</b> pipeline(s) em execução.\n\n"
+            "Aguarde a conclusão antes de iniciar outro."
+        )
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("⬅️ Voltar", callback_data="nav|main")],
+        ])
+        try:
+            await q.edit_message_text(text, reply_markup=kb, parse_mode="HTML")
+        except Exception:
+            await context.bot.send_message(chat_id, text, reply_markup=kb, parse_mode="HTML")
+        return
+
+    # ── verificação pré-pipeline ─────────────────────────────────────────────
+    if not force:
+        info = _get_pipeline_info(parts)
+        if info:
+            try:
+                from notebooklm_session import preflight_check
+                result = await asyncio.to_thread(preflight_check, info[0], info[1], False)
+                if result["critical"]:
+                    text = "❌ <b>Verificação pré-pipeline</b>\n\n"
+                    for c in result["critical"]:
+                        text += f"• {html_escape(c)}\n"
+                    if result["warnings"]:
+                        text += f"\n⚠️ <b>Avisos:</b>\n"
+                        for w in result["warnings"]:
+                            text += f"• {html_escape(w)}\n"
+
+                    force_data = "force|" + "|".join(parts)
+                    back_map = {
+                        "noticias": "nav|noticias", "tech_news": "nav|tech_news",
+                        "audio": "nav|audio", "shorts": "nav|shorts",
+                    }
+                    back = back_map.get(tipo, "nav|main")
+
+                    kb = InlineKeyboardMarkup([
+                        [InlineKeyboardButton("▶️ Iniciar mesmo assim", callback_data=force_data)],
+                        [InlineKeyboardButton("⬅️ Voltar", callback_data=back)],
+                    ])
+                    try:
+                        await q.edit_message_text(text, reply_markup=kb, parse_mode="HTML")
+                    except Exception:
+                        await context.bot.send_message(chat_id, text, reply_markup=kb, parse_mode="HTML")
+                    return
+            except ImportError:
+                pass
+            except Exception:
+                pass  # erro no preflight não deve bloquear o pipeline
 
     # -- check/refresh sessão NotebookLM --
     if tipo == "nlm_check":
@@ -779,6 +882,7 @@ _ACCEPTED_CREDENTIAL_FILES = {
     "notebooklm_storage_state.json": "notebooklm_storage_state.json",
     "tiktok_cookies.json": "tiktok_cookies.json",
     "ig_session.json": "ig_session.json",
+    "token.json": "token.json",
 }
 
 
@@ -797,6 +901,7 @@ async def on_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await msg.reply_text(
             f"⚠️ Arquivo <code>{html_escape(filename)}</code> não reconhecido.\n\n"
             "Arquivos aceitos:\n"
+            "• <code>token.json</code> — OAuth YouTube\n"
             "• <code>storage_state.json</code> — sessão NotebookLM\n"
             "• <code>notebooklm_storage_state.json</code> — sessão NotebookLM\n"
             "• <code>tiktok_cookies.json</code> — cookies TikTok\n"

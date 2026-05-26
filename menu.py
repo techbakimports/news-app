@@ -324,7 +324,25 @@ def perguntar_upload():
     return op != "n"
 
 
-def rodar(cmd, descricao):
+def rodar(cmd, descricao, pipeline=None, upload=True):
+    if pipeline:
+        try:
+            from notebooklm_session import preflight_check
+            check = preflight_check(pipeline, upload=upload)
+            if not check["ok"]:
+                op = input("  Iniciar mesmo assim? (s/N): ").strip().lower()
+                if op != "s":
+                    print("\n  Pipeline cancelado.")
+                    aguardar()
+                    return
+            elif check["warnings"]:
+                input("  Pressione Enter para continuar...")
+        except ImportError:
+            pass
+        except Exception as e:
+            print(f"\n  Aviso: erro na verificação pré-pipeline: {e}")
+            print("  Continuando mesmo assim...\n")
+
     print(f"\n  Iniciando: {descricao}")
     print("-" * 45)
     result = subprocess.run(cmd)
@@ -350,11 +368,11 @@ def menu_noticias():
         op = input("  Escolha: ").strip()
 
         if op == "1":
-            rodar([PYTHON, "main.py"], "Pipeline de notícias → YouTube público")
+            rodar([PYTHON, "main.py"], "Pipeline de notícias → YouTube público", pipeline="noticias")
         elif op == "2":
-            rodar([PYTHON, "main.py", "--sem-upload"], "Pipeline de notícias (sem upload)")
+            rodar([PYTHON, "main.py", "--sem-upload"], "Pipeline de notícias (sem upload)", pipeline="noticias", upload=False)
         elif op == "3":
-            rodar([PYTHON, "main.py", "--privado"], "Pipeline de notícias → YouTube privado")
+            rodar([PYTHON, "main.py", "--privado"], "Pipeline de notícias → YouTube privado", pipeline="noticias")
         elif op == "0":
             return
         else:
@@ -405,7 +423,7 @@ def menu_audio_longo():
 
         resumo = f"{label} — {horas}h"
         resumo += " → YouTube " + ("privado" if "--privado" in cmd else "público") if upload else " (local)"
-        rodar(cmd, resumo)
+        rodar(cmd, resumo, pipeline="audio", upload=upload)
 
 
 # -- submenu Shorts ------------------------------------------------------------
@@ -435,6 +453,7 @@ def menu_shorts():
             rodar(
                 [PYTHON, "shorts.py", "--quantidade", str(n)],
                 f"{n} Short(s) das notícias de hoje → YouTube público",
+                pipeline="shorts",
             )
 
         elif op == "2":
@@ -447,6 +466,7 @@ def menu_shorts():
             rodar(
                 [PYTHON, "shorts.py", "--de-existentes", "--quantidade", str(n)],
                 f"{n} Short(s) de vídeos já postados → YouTube público",
+                pipeline="shorts",
             )
 
         elif op == "3":
@@ -459,6 +479,7 @@ def menu_shorts():
             rodar(
                 [PYTHON, "shorts.py", "--quantidade", str(n), "--sem-upload"],
                 f"{n} Short(s) das notícias (sem upload)",
+                pipeline="shorts", upload=False,
             )
 
         elif op == "4":
@@ -471,6 +492,7 @@ def menu_shorts():
             rodar(
                 [PYTHON, "shorts.py", "--de-existentes", "--quantidade", str(n), "--privado"],
                 f"{n} Short(s) de vídeos existentes → YouTube privado",
+                pipeline="shorts",
             )
 
         else:
@@ -493,11 +515,11 @@ def menu_tech_news():
         op = input("  Escolha: ").strip()
 
         if op == "1":
-            rodar([PYTHON, "tech_news.py"], "Tech News via NotebookLM -> YouTube publico")
+            rodar([PYTHON, "tech_news.py"], "Tech News via NotebookLM -> YouTube publico", pipeline="tech_news")
         elif op == "2":
-            rodar([PYTHON, "tech_news.py", "--sem-upload"], "Tech News (sem upload)")
+            rodar([PYTHON, "tech_news.py", "--sem-upload"], "Tech News (sem upload)", pipeline="tech_news", upload=False)
         elif op == "3":
-            rodar([PYTHON, "tech_news.py", "--privado"], "Tech News -> YouTube privado")
+            rodar([PYTHON, "tech_news.py", "--privado"], "Tech News -> YouTube privado", pipeline="tech_news")
         elif op == "0":
             return
         else:
