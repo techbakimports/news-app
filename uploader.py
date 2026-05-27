@@ -86,6 +86,11 @@ def upload_video(video_path, title, description, tags=None, publish_at_hour=6, p
     if not os.path.exists(video_path):
         raise FileNotFoundError(f"Vídeo não encontrado: {video_path}")
 
+    title = _sanitize_yt(title)
+    description = _sanitize_yt(description)
+    if len(description) > 4900:
+        description = description[:4900] + "\n..."
+
     creds = _get_credentials()
     youtube = build("youtube", "v3", credentials=creds)
 
@@ -185,6 +190,13 @@ def _shorten_url(url: str) -> str:
     return clean
 
 
+def _sanitize_yt(text: str) -> str:
+    """Remove caracteres que o YouTube rejeita na descrição (< e > de tags HTML do RSS)."""
+    import re
+    text = re.sub(r"<[^>]*>", "", text)
+    return text.replace("<", "").replace(">", "").strip()
+
+
 def build_description(news_items, date_str):
     """Gera descrição automática com as categorias, fontes e links do episódio."""
     lines = [
@@ -193,9 +205,9 @@ def build_description(news_items, date_str):
         "Neste episódio:",
     ]
     for item in news_items:
-        cat = item.get("category", "Notícia")
-        title = item.get("title", "")
-        source = item.get("source", "")
+        cat = _sanitize_yt(item.get("category", "Notícia"))
+        title = _sanitize_yt(item.get("title", ""))
+        source = _sanitize_yt(item.get("source", ""))
         link = item.get("link", "")
         line = f"• [{cat}] {title} — {source}"
         if link:
@@ -208,4 +220,7 @@ def build_description(news_items, date_str):
         "Notícias coletadas automaticamente de fontes públicas brasileiras.",
         "#noticias #brasil #resumodenoticias",
     ]
-    return "\n".join(lines)
+    desc = "\n".join(lines)
+    if len(desc) > 4900:
+        desc = desc[:4900] + "\n..."
+    return desc

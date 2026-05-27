@@ -451,6 +451,13 @@ async def run_tech_news(on_progress=None):
     return None
 
 
+def _sanitize_yt(text: str) -> str:
+    """Remove caracteres que o YouTube rejeita na descrição."""
+    import re
+    text = re.sub(r"<[^>]*>", "", text)
+    return text.replace("<", "").replace(">", "").strip()
+
+
 def _build_tech_description(items, date_str):
     """Monta descricao do video com lista de noticias."""
     lines = [
@@ -459,8 +466,8 @@ def _build_tech_description(items, date_str):
         "Noticias de hoje:",
     ]
     for i, item in enumerate(items, 1):
-        title = item.get("title", "")
-        source = item.get("source", "")
+        title = _sanitize_yt(item.get("title", ""))
+        source = _sanitize_yt(item.get("source", ""))
         lines.append(f"{i}. {title} ({source})")
 
     lines.extend([
@@ -470,7 +477,10 @@ def _build_tech_description(items, date_str):
         "",
         "#tecnologia #tech #noticias #inovacao #IA #programacao",
     ])
-    return "\n".join(lines)
+    desc = "\n".join(lines)
+    if len(desc) > 4900:
+        desc = desc[:4900] + "\n..."
+    return desc
 
 
 # -- Entry point ---------------------------------------------------------------
