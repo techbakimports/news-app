@@ -211,7 +211,7 @@ def build_description(news_items, date_str):
         link = item.get("link", "")
         line = f"• [{cat}] {title} — {source}"
         if link:
-            line += f"\n  {_shorten_url(link)}"
+            line += f"\n{_shorten_url(link)}"
         lines.append(line)
     lines += [
         "",
