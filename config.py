@@ -8,7 +8,12 @@ SITES_ALVO = [
     "r7.com",
     "uol.com.br",
     "terra.com.br",
-    "google_news",  # busca geral no Google News sem filtro de site
+    "msn.com/pt-br",
+    "oglobo.globo.com",
+    "estadao.com.br",
+    "cnnbrasil.com.br",
+    "metropoles.com",
+    "jovempan.com.br",
 ]
 
 # Categorias desejadas
@@ -40,7 +45,7 @@ VIDEO_OUTPUT_DIR = "./video_news"
 CHANNEL_NAME = "NewsApp Brasil"  # Nome exibido no canto superior direito do vídeo
 
 # Instagram — ativa se INSTAGRAM_USERNAME e INSTAGRAM_PASSWORD estiverem no .env
-INSTAGRAM_UPLOAD = True  # False para desativar mesmo com credenciais configuradas
+INSTAGRAM_UPLOAD = False  # False para desativar mesmo com credenciais configuradas
 
 # TikTok — ativa se credentials/tiktok_cookies.json existir
 TIKTOK_UPLOAD = True  # False para desativar mesmo com cookies configurados
