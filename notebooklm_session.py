@@ -33,6 +33,261 @@ BROWSER_PROFILE = DEFAULT_PROFILE_DIR / "browser_profile"
 
 NOTEBOOKLM_URL = "https://notebooklm.google.com/"
 
+# Cookies "mestres" — duram anos. Suficientes pra autenticar e gerar novos rotativos.
+_LONG_LIVED_COOKIES = {
+    "SID", "HSID", "SSID", "APISID", "SAPISID",
+    "__Secure-1PSID", "__Secure-3PSID",
+    "__Secure-1PAPISID", "__Secure-3PAPISID",
+    "LSID", "__Host-1PLSID", "__Host-3PLSID",
+    "OSID", "__Secure-OSID",
+    "NID",
+}
+_GOOGLE_DOMAINS = (".google.com", "google.com", "accounts.google.com", "notebooklm.google.com")
+_UA_CHROME = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/131.0.0.0 Safari/537.36"
+)
+
+
+def _load_storage_state() -> dict | None:
+    """Carrega o storage_state.json mais recente disponivel."""
+    import json
+    for path in (CREDENTIALS_STORAGE, DEFAULT_STORAGE):
+        if path.exists():
+            try:
+                with open(path, encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                continue
+    return None
+
+
+def _save_storage_state(data: dict) -> None:
+    """Salva o storage_state em ambos os caminhos padrao."""
+    import json
+    DEFAULT_PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+    CREDENTIALS_STORAGE.parent.mkdir(parents=True, exist_ok=True)
+    with open(DEFAULT_STORAGE, "w", encoding="utf-8") as f:
+        json.dump(data, f)
+    shutil.copy2(DEFAULT_STORAGE, CREDENTIALS_STORAGE)
+
+
+def _cookies_to_jar(cookies: list[dict]):
+    """
+    Converte cookies do storage_state pra http.cookiejar.CookieJar com domain/path/expires.
+    Isso garante que httpx envia exatamente os cookies certos pra cada dominio.
+    """
+    from http.cookiejar import Cookie, CookieJar
+    jar = CookieJar()
+    for c in cookies:
+        domain = c.get("domain", "")
+        if "google" not in domain:
+            continue
+        cookie = Cookie(
+            version=0,
+            name=c["name"],
+            value=c["value"],
+            port=None,
+            port_specified=False,
+            domain=domain,
+            domain_specified=True,
+            domain_initial_dot=domain.startswith("."),
+            path=c.get("path", "/"),
+            path_specified=True,
+            secure=c.get("secure", False),
+            expires=int(c["expires"]) if c.get("expires", 0) > 0 else None,
+            discard=False,
+            comment=None,
+            comment_url=None,
+            rest={"HttpOnly": ""} if c.get("httpOnly") else {},
+            rfc2109=False,
+        )
+        jar.set_cookie(cookie)
+    return jar
+
+
+def _merge_cookies(storage: dict, new_cookies_by_domain: dict, default_domain: str = ".google.com") -> int:
+    """
+    Mescla cookies novos (de Set-Cookie) no storage_state.
+    Preserva duplicatas por (name, domain) — Google tem o mesmo nome em
+    .google.com e accounts.google.com com valores diferentes.
+
+    new_cookies_by_domain: dict[(name, domain)] -> value
+    Retorna quantos cookies foram atualizados ou adicionados.
+    """
+    # Indexa por (name, domain) pra nao perder duplicatas
+    existing_cookies = storage.get("cookies", [])
+    existing_idx = {(c["name"], c.get("domain", "")): c for c in existing_cookies}
+    updated = 0
+
+    # Tambem indexa so por nome pra atualizar TODOS os cookies com aquele nome
+    # (quando Google rotaciona, geralmente rotaciona em todos os dominios)
+    by_name: dict[str, list] = {}
+    for c in existing_cookies:
+        by_name.setdefault(c["name"], []).append(c)
+
+    for (name, domain), value in new_cookies_by_domain.items():
+        # Caso 1: match exato (name + domain) — so atualiza se valor mudou
+        key = (name, domain)
+        if key in existing_idx:
+            c = existing_idx[key]
+            if c["value"] != value:
+                c["value"] = value
+                c["expires"] = time.time() + 86400 * 365
+                updated += 1
+            continue
+
+        # Caso 2: mesmo nome em outros dominios — atualiza se valor mudou
+        if name in by_name:
+            for c in by_name[name]:
+                if c["value"] != value:
+                    c["value"] = value
+                    c["expires"] = time.time() + 86400 * 365
+                    updated += 1
+            continue
+
+        # Caso 3: cookie novo
+        new_cookie = {
+            "name": name,
+            "value": value,
+            "domain": domain or default_domain,
+            "path": "/",
+            "expires": time.time() + 86400 * 365,
+            "httpOnly": False,
+            "secure": True,
+            "sameSite": "Lax",
+        }
+        existing_cookies.append(new_cookie)
+        existing_idx[key] = new_cookie
+        by_name.setdefault(name, []).append(new_cookie)
+        updated += 1
+
+    storage["cookies"] = existing_cookies
+    return updated
+
+
+def refresh_via_http(verbose: bool = True) -> bool:
+    """
+    Rotaciona cookies do Google via HTTP — sem browser.
+    Funciona em VPS sem display.
+
+    Estrategia: visita endpoints que o Chrome usa pra rotacionar tokens
+    (SIDCC, PSIDTS, PSIDRTS). Os cookies long-lived (SID, SAPISID, etc)
+    autenticam a requisicao; o Google responde com Set-Cookie atualizando
+    os rotativos.
+
+    Retorna True se renovou pelo menos 1 cookie, False caso contrario.
+    """
+    try:
+        import httpx
+    except ImportError:
+        if verbose:
+            print("❌ httpx nao instalado.")
+        return False
+
+    storage = _load_storage_state()
+    if storage is None:
+        if verbose:
+            print("❌ storage_state.json nao encontrado.")
+        return False
+
+    cookies = storage.get("cookies", [])
+    if not cookies:
+        if verbose:
+            print("❌ storage_state sem cookies.")
+        return False
+
+    # Verifica se os long-lived ainda estao validos
+    now = time.time()
+    long_lived = [c for c in cookies if c["name"] in _LONG_LIVED_COOKIES]
+    expired_long = [c for c in long_lived if 0 < c.get("expires", 0) < now]
+
+    if expired_long:
+        if verbose:
+            print(f"❌ {len(expired_long)} cookies mestres expirados — precisa login manual.")
+            for c in expired_long[:3]:
+                print(f"   • {c['name']}")
+        return False
+
+    if verbose:
+        print(f"🔄 Refresh HTTP iniciando ({len(cookies)} cookies)...")
+
+    jar = _cookies_to_jar(cookies)
+
+    headers = {
+        "User-Agent": _UA_CHROME,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
+        "Sec-Fetch-Site": "same-origin",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Dest": "document",
+        "Upgrade-Insecure-Requests": "1",
+    }
+
+    # Sequencia que dispara rotacao de SIDCC/SIDTS/PSIDTS/PSIDRTS no Google.
+    # myaccount e drive sao endpoints conhecidos por rotacionar agressivamente.
+    endpoints = [
+        "https://myaccount.google.com/",
+        "https://drive.google.com/",
+        "https://accounts.google.com/ServiceLogin",
+        "https://notebooklm.google.com/",
+        "https://accounts.google.com/CheckCookie",
+    ]
+
+    all_new_cookies: dict[tuple[str, str], str] = {}
+
+    try:
+        with httpx.Client(
+            cookies=jar,
+            headers=headers,
+            follow_redirects=True,
+            timeout=20.0,
+            http2=False,
+        ) as client:
+            for url in endpoints:
+                try:
+                    r = client.get(url)
+                    if verbose:
+                        print(f"   GET {url[:60]}... → {r.status_code}")
+                except Exception as e:
+                    if verbose:
+                        print(f"   ⚠️  Falhou {url[:60]}: {e}")
+                    continue
+
+            # Coleta cookies acumulados — usa (name, domain) pra preservar duplicatas
+            for cookie in client.cookies.jar:
+                if "google" in (cookie.domain or ""):
+                    domain = cookie.domain
+                    # Normaliza dominio: httpx as vezes retorna "accounts.google.com" sem leading dot
+                    all_new_cookies[(cookie.name, domain)] = cookie.value
+
+    except Exception as e:
+        if verbose:
+            print(f"❌ Erro na requisicao: {e}")
+        return False
+
+    if not all_new_cookies:
+        if verbose:
+            print("⚠️  Nenhum cookie retornado pelo Google.")
+        return False
+
+    # Mescla no storage_state
+    updated = _merge_cookies(storage, all_new_cookies)
+
+    if updated == 0:
+        if verbose:
+            print("ℹ️  Cookies ja estavam atualizados (nada mudou).")
+        # Mesmo assim consideramos sucesso — sessao esta viva
+        return True
+
+    _save_storage_state(storage)
+
+    if verbose:
+        print(f"✅ {updated} cookies renovados via HTTP.")
+        print(f"   Salvo em: {CREDENTIALS_STORAGE}")
+    return True
+
 
 async def check(verbose: bool = True) -> bool:
     """
@@ -65,23 +320,30 @@ def refresh(verbose: bool = True) -> bool:
     Tenta renovar a sessao NotebookLM.
 
     Estrategia:
+    0. HTTP refresh (sem browser — funciona em VPS sem display)
     1. Headless com browser profile (se Google ainda aceitar os cookies do profile)
     2. Browser visivel com auto-detect de login (abre janela, usuario loga, fecha sozinho)
 
     Retorna True se renovou com sucesso, False se falhou.
     """
+    # Tentativa 0: HTTP puro (rapido, leve, funciona em VPS)
+    if verbose:
+        print("🔄 Tentativa 0: refresh via HTTP (sem browser)...")
+    if refresh_via_http(verbose=verbose):
+        return True
+
     if not BROWSER_PROFILE.exists():
         if verbose:
-            print("❌ Browser profile nao encontrado.")
+            print("❌ Browser profile nao encontrado para tentativa Playwright.")
             print(f"   Esperado em: {BROWSER_PROFILE}")
-            print("   Execute 'notebooklm login' manualmente primeiro.")
+            print("   Refresh HTTP foi a unica opcao — execute 'notebooklm login' se persistir.")
         return False
 
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
         if verbose:
-            print("❌ Playwright nao instalado.")
+            print("❌ Playwright nao instalado — pulando tentativas com browser.")
             print("   pip install playwright && playwright install chromium")
         return False
 
@@ -508,6 +770,8 @@ def main():
     )
     parser.add_argument("--refresh", action="store_true",
                         help="Tenta renovar a sessao NotebookLM automaticamente")
+    parser.add_argument("--refresh-http", action="store_true",
+                        help="Refresh APENAS via HTTP (sem browser) — ideal pra VPS/cron")
     parser.add_argument("--check-only", action="store_true",
                         help="Apenas verifica NotebookLM sem tentar renovar")
     parser.add_argument("--all", action="store_true",
@@ -524,6 +788,9 @@ def main():
         # (None = desativado, nao conta como falha)
         has_failure = any(v is False for v in results.values() if v is not None)
         sys.exit(1 if has_failure else 0)
+    elif args.refresh_http:
+        success = refresh_via_http(verbose=verbose)
+        sys.exit(0 if success else 1)
     elif args.refresh:
         success = refresh(verbose=verbose)
         sys.exit(0 if success else 1)
