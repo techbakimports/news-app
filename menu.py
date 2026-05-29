@@ -359,6 +359,11 @@ def rodar(cmd, descricao, pipeline=None, upload=True):
 def menu_noticias():
     while True:
         cabecalho("-- NOTÍCIAS --")
+        print("  Pipeline completo gera:")
+        print("    • Vídeo longo (~15 min) → YouTube")
+        print("    • Thumbnail automática")
+        print("    • Shorts por categoria (exceto Esporte) → YouTube + TikTok")
+        print()
         print("  1.  Executar pipeline completo")
         print("  2.  Executar sem upload (só gera vídeo local)")
         print("  3.  Executar e publicar como privado")
@@ -594,6 +599,9 @@ def main():
             print()
             print("  Ao publicar Shorts, o upload é automático para:")
             print("    YouTube → Instagram (Reel) → TikTok")
+            print()
+            print("  No pipeline completo de Notícias, é gerado 1 Short")
+            print("  por categoria (exceto Esporte) a partir do vídeo longo.")
             aguardar()
         elif op == "0":
             cls()

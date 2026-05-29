@@ -176,10 +176,10 @@ def kb_main() -> InlineKeyboardMarkup:
 
 def kb_noticias() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("▶️ Pipeline completo",      callback_data="run|noticias|pub")],
-        [InlineKeyboardButton("💾 Só gerar (sem upload)",  callback_data="run|noticias|local")],
-        [InlineKeyboardButton("🔒 Publicar como privado",  callback_data="run|noticias|priv")],
-        [InlineKeyboardButton("⬅️ Voltar",                 callback_data="nav|main")],
+        [InlineKeyboardButton("▶️ Pipeline completo (Vídeo + Shorts)", callback_data="run|noticias|pub")],
+        [InlineKeyboardButton("💾 Só gerar (sem upload)",              callback_data="run|noticias|local")],
+        [InlineKeyboardButton("🔒 Publicar como privado (+ Shorts)",   callback_data="run|noticias|priv")],
+        [InlineKeyboardButton("⬅️ Voltar",                             callback_data="nav|main")],
     ])
 
 
@@ -512,7 +512,14 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 reply_markup=kb_main(), parse_mode="HTML",
             )
         elif dest == "noticias":
-            await q.edit_message_text("📰 <b>Notícias</b>", reply_markup=kb_noticias(), parse_mode="HTML")
+            await q.edit_message_text(
+                "📰 <b>Notícias</b>\n\n"
+                "<b>Pipeline completo gera:</b>\n"
+                "• Vídeo longo (~15 min) → YouTube\n"
+                "• Thumbnail automática\n"
+                "• Shorts por categoria (exceto Esporte) → YouTube + TikTok",
+                reply_markup=kb_noticias(), parse_mode="HTML",
+            )
         elif dest == "audio":
             await q.edit_message_text(
                 "🎵 <b>Áudio Longo</b> — Tipo de som:",
