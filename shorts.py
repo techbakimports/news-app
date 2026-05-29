@@ -206,6 +206,173 @@ def _render_short_frame(
 # Pipeline principal
 # ---------------------------------------------------------------------------
 
+async def generate_short_from_text(
+    title: str,
+    narration: str,
+    category: str = "Notícias",
+    source: str = "",
+    upload: bool = True,
+    privacy: str = "public",
+    hashtags: list[str] | None = None,
+    playlist_key: str = "noticias",
+    instagram_enabled: bool = True,
+) -> str | None:
+    """
+    Gera um Short vertical 1080×1920 a partir de TEXTO PRONTO (sem chamar Gemini).
+
+    Útil quando o resumo já vem pronto de outra fonte (NotebookLM, etc).
+    Faz TTS + busca imagem Pexels + renderiza frame + upload YouTube/Instagram/TikTok.
+
+    Args:
+        title: título da notícia (exibido em destaque)
+        narration: texto que será falado pelo TTS (deve estar pronto, máx ~400 palavras)
+        category: categoria pra cor/badge (usa CATEGORY_COLORS)
+        source: fonte exibida no rodapé
+        hashtags: lista de hashtags YouTube (default = pacote genérico)
+        playlist_key: chave da playlist no playlists.py ("noticias", "tech", etc)
+        instagram_enabled: se False, NÃO posta no Instagram mesmo com config ativa
+
+    Retorna o video_id do YouTube ou None se falhar.
+    """
+    os.makedirs(SHORTS_OUTPUT_DIR, exist_ok=True)
+    os.makedirs(AUDIO_OUTPUT_DIR, exist_ok=True)
+
+    # Limita narração ao máximo de palavras pro Short (~3 min)
+    words = clean_text(narration).split()
+    summary = " ".join(words[:MAX_WORDS_SHORT])
+    narration_full = f"{title}. {summary}"
+
+    print(f"\n  Short: {title[:60]}...")
+
+    # 1. Áudio TTS
+    print("  [1/3] Gerando áudio TTS...")
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    audio_filename = f"short_{ts}.mp3"
+    audio_path = os.path.join(AUDIO_OUTPUT_DIR, audio_filename)
+    data = await _stream_to_bytes(narration_full)
+    if not data:
+        print("  TTS falhou — pulando.")
+        return None
+    with open(audio_path, "wb") as f:
+        f.write(data)
+
+    audio_clip = AudioFileClip(audio_path)
+    duration = min(audio_clip.duration, 178.0)  # margem de 2s do limite (180s)
+
+    # 2. Imagem Pexels portrait
+    print("  [2/3] Buscando imagem Pexels...")
+    query = _build_pexels_query(title, category)
+    pil_img, _ = _search_pexels(query, orientation="portrait")
+    if pil_img is None:
+        pil_img, _ = _search_pexels(query, orientation="landscape")
+    if pil_img:
+        portrait = _crop_portrait(pil_img)
+        bg_arr = _dark_overlay(portrait)
+    else:
+        color = CATEGORY_COLORS.get(category, DEFAULT_COLOR)
+        bg_solid = Image.new("RGB", (SHORTS_W, SHORTS_H), tuple(int(c * 0.25) for c in color))
+        bg_arr = np.array(bg_solid)
+
+    # 3. Render + monta vídeo
+    print("  [3/3] Montando vídeo vertical...")
+    frame = _render_short_frame(bg_arr, title, summary, category, source)
+
+    video_clip = (
+        ImageClip(frame)
+        .set_duration(duration)
+        .set_fps(FPS)
+        .set_audio(audio_clip.subclip(0, duration))
+    )
+
+    output_path = os.path.join(SHORTS_OUTPUT_DIR, f"Short_{category}_{ts}.mp4")
+    video_clip.write_videofile(
+        output_path,
+        fps=FPS,
+        codec="libx264",
+        audio_codec="aac",
+        preset="fast",
+        verbose=False,
+        logger=None,
+    )
+    video_clip.close()
+    audio_clip.close()
+    try:
+        os.remove(audio_path)
+    except Exception:
+        pass
+
+    print(f"  Vídeo salvo: {output_path} ({duration:.1f}s)")
+
+    if not upload:
+        return output_path
+
+    # Upload — plataformas independentes
+    from uploader import upload_video as yt_upload
+    from playlists import add_to_playlist
+
+    if hashtags is None:
+        hashtags = ["Shorts", "Notícias", "Brasil"]
+
+    yt_title = f"{title[:80]} #Shorts"
+    hash_line = " ".join(f"#{h}" for h in hashtags)
+    yt_desc = (
+        f"{summary}\n\n"
+        f"Fonte: {source}\n"
+        f"📰 {CHANNEL_NAME}\n\n"
+        f"{hash_line}"
+    )
+    yt_tags = [h.lower() for h in hashtags] + [category.lower()]
+
+    video_id = None
+    # YouTube
+    try:
+        video_id = yt_upload(output_path, yt_title, yt_desc, yt_tags, privacy=privacy)
+        print(f"    YouTube: https://youtu.be/{video_id}")
+        try:
+            add_to_playlist(video_id, playlist_key)
+        except Exception as e:
+            print(f"    add_to_playlist falhou: {e}")
+    except Exception as e:
+        print(f"    Erro YouTube: {e}")
+
+    # Instagram
+    if instagram_enabled:
+        try:
+            from config import INSTAGRAM_UPLOAD
+            if INSTAGRAM_UPLOAD:
+                from instagram_uploader import upload_reel, INSTAGRAM_ENABLED
+                if INSTAGRAM_ENABLED:
+                    ig_caption = (
+                        f"{title}\n\n{summary}\n\nFonte: {source}\n\n"
+                        f"{hash_line.lower()}"
+                    )
+                    upload_reel(output_path, ig_caption)
+                    print(f"    Instagram Reel: OK")
+        except Exception as e:
+            print(f"    Instagram Reel falhou: {e}")
+
+    # TikTok
+    try:
+        from config import TIKTOK_UPLOAD
+        if TIKTOK_UPLOAD:
+            from tiktok_uploader import upload_video as tk_upload, TIKTOK_ENABLED
+            if TIKTOK_ENABLED:
+                tk_desc = f"{title}\n\n{summary}\n\nFonte: {source}"
+                tk_hashtags = [h.lower() for h in hashtags]
+                tk_upload(output_path, tk_desc, tk_hashtags)
+                print(f"    TikTok: OK")
+    except Exception as e:
+        print(f"    TikTok falhou: {e}")
+
+    # Cleanup
+    try:
+        os.remove(output_path)
+    except Exception:
+        pass
+
+    return video_id
+
+
 async def generate_short(item: dict, upload: bool = True, privacy: str = "public") -> str | None:
     """
     Gera um Short vertical de ~50s para um item de notícia.

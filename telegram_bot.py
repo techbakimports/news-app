@@ -169,7 +169,7 @@ def kb_main() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("📸 Status Instagram",     callback_data="nav|instagram")],
         [InlineKeyboardButton("🎵 Status TikTok",        callback_data="nav|tiktok")],
         [InlineKeyboardButton("🔬 Tech Digest",          callback_data="run|tech_digest")],
-        [InlineKeyboardButton("💻 Tech News (Video)",    callback_data="nav|tech_news")],
+        [InlineKeyboardButton("💻 Tech Shorts",          callback_data="nav|tech_news")],
         [InlineKeyboardButton("🔑 Sessão NotebookLM",   callback_data="run|nlm_check")],
     ])
 
@@ -185,10 +185,10 @@ def kb_noticias() -> InlineKeyboardMarkup:
 
 def kb_tech_news() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("▶️ Pipeline completo",      callback_data="run|tech_news|pub")],
-        [InlineKeyboardButton("💾 Só gerar (sem upload)",  callback_data="run|tech_news|local")],
-        [InlineKeyboardButton("🔒 Publicar como privado",  callback_data="run|tech_news|priv")],
-        [InlineKeyboardButton("⬅️ Voltar",                 callback_data="nav|main")],
+        [InlineKeyboardButton("▶️ Gerar Tech Shorts (público)", callback_data="run|tech_news|pub")],
+        [InlineKeyboardButton("💾 Só gerar (sem upload)",       callback_data="run|tech_news|local")],
+        [InlineKeyboardButton("🔒 Publicar como privado",       callback_data="run|tech_news|priv")],
+        [InlineKeyboardButton("⬅️ Voltar",                      callback_data="nav|main")],
     ])
 
 
@@ -529,8 +529,12 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             await q.edit_message_text("📱 <b>Shorts</b>", reply_markup=kb_shorts(), parse_mode="HTML")
         elif dest == "tech_news":
             await q.edit_message_text(
-                "💻 <b>Notícias de Tecnologia</b>\n"
-                "Pipeline: NotebookLM → TTS → Vídeo → YouTube",
+                "💻 <b>Tech Shorts</b>\n\n"
+                "<b>Pipeline gera APENAS Shorts:</b>\n"
+                "• NotebookLM busca top 5 tópicos tech\n"
+                "• 1 Short vertical por tópico\n"
+                "• Upload: YouTube + TikTok\n"
+                "• <i>Sem vídeo longo</i>",
                 reply_markup=kb_tech_news(), parse_mode="HTML",
             )
         elif dest == "agenda":

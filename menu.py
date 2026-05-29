@@ -508,11 +508,12 @@ def menu_shorts():
 
 def menu_tech_news():
     while True:
-        cabecalho("-- NOTICIAS DE TECNOLOGIA --")
-        print("  Pipeline: NotebookLM (10 sites) -> TTS -> Video -> YouTube")
+        cabecalho("-- TECH SHORTS --")
+        print("  Pipeline: NotebookLM (10 sites tech) -> N Shorts -> YouTube + TikTok")
+        print("  (SEM video longo — apenas Shorts verticais)")
         print()
-        print("  1.  Executar pipeline completo")
-        print("  2.  Executar sem upload (so gera video local)")
+        print("  1.  Executar pipeline (publica como publico)")
+        print("  2.  Executar sem upload (so gera os Shorts localmente)")
         print("  3.  Executar e publicar como privado")
         print()
         print("  0.  Voltar")
@@ -520,11 +521,11 @@ def menu_tech_news():
         op = input("  Escolha: ").strip()
 
         if op == "1":
-            rodar([PYTHON, "tech_news.py"], "Tech News via NotebookLM -> YouTube publico", pipeline="tech_news")
+            rodar([PYTHON, "tech_news.py"], "Tech Shorts -> YouTube + TikTok publico", pipeline="tech_news")
         elif op == "2":
-            rodar([PYTHON, "tech_news.py", "--sem-upload"], "Tech News (sem upload)", pipeline="tech_news", upload=False)
+            rodar([PYTHON, "tech_news.py", "--sem-upload"], "Tech Shorts (sem upload)", pipeline="tech_news", upload=False)
         elif op == "3":
-            rodar([PYTHON, "tech_news.py", "--privado"], "Tech News -> YouTube privado", pipeline="tech_news")
+            rodar([PYTHON, "tech_news.py", "--privado"], "Tech Shorts -> YouTube privado", pipeline="tech_news")
         elif op == "0":
             return
         else:
@@ -537,7 +538,7 @@ def main():
         print("  1.  Postar Noticias")
         print("  2.  Postar Audio Longo")
         print("  3.  Shorts")
-        print("  4.  Noticias de Tecnologia (NotebookLM)")
+        print("  4.  Tech Shorts (NotebookLM -> Shorts)")
         print("  5.  Agendamento")
         print("  6.  Organizar videos em playlists")
         print("  7.  Status das Redes Sociais")

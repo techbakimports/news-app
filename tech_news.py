@@ -1,7 +1,7 @@
 """
-Pipeline de Noticias de Tecnologia via NotebookLM.
+Pipeline de Tech Shorts — produz APENAS Shorts (sem vídeo longo).
 
-Fluxo: NotebookLM (10 sites tech) -> parse estruturado -> TTS Edge -> Video MP4 -> YouTube
+Fluxo: NotebookLM (10 sites tech) -> top N tópicos -> 1 Short por tópico -> YouTube + TikTok
 
 Uso:
     python tech_news.py
@@ -20,10 +20,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from audio import generate_audio_segments
-from video import generate_video
-from uploader import upload_video, upload_thumbnail
-from playlists import add_to_playlist
 from config import DRIVE_SYNC_DIR, AUDIO_OUTPUT_DIR, CHANNEL_NAME
 
 # Logging
@@ -52,7 +48,9 @@ def print(*args, **kwargs):  # noqa: A001
 
 YOUTUBE_UPLOAD = True
 YOUTUBE_PUBLISH_NOW = True
-YOUTUBE_GENERATE_SHORT = True
+# Tech News agora produz APENAS Shorts (sem vídeo longo).
+# Quantos Shorts gerar por ciclo (top N notícias do NotebookLM):
+MAX_TECH_SHORTS_PER_RUN = 5
 
 
 # -- Sites de tecnologia ------------------------------------------------------
@@ -294,161 +292,93 @@ def _parse_news_freetext(text: str):
 # -- Pipeline principal --------------------------------------------------------
 
 async def run_tech_news(on_progress=None):
-    """Pipeline completo: NotebookLM -> TTS -> Video -> YouTube."""
-    print(f"--- Tech News Pipeline: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')} ---")
+    """
+    Pipeline Tech News — produz APENAS Shorts (sem vídeo longo).
+    Fluxo: NotebookLM busca top N tópicos -> 1 Short por tópico -> YouTube + TikTok.
+    """
+    print(f"--- Tech Shorts Pipeline: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')} ---")
 
-    # 1. Buscar noticias via NotebookLM
-    print("\n[1/5] Buscando noticias de tecnologia via NotebookLM...")
+    privacy = "public" if YOUTUBE_PUBLISH_NOW else "private"
+    date_str = datetime.now().strftime("%d/%m/%Y")
+
+    # 1. Buscar notícias via NotebookLM
+    print("\n[1/2] Buscando notícias de tecnologia via NotebookLM...")
     items = await fetch_tech_news_notebooklm(on_progress=on_progress)
 
     if not items:
-        print("Nenhuma noticia obtida. Abortando.")
+        print("Nenhuma notícia obtida. Abortando.")
         return None
 
-    # Limitar a ~2200 palavras (mesmo padrao do main.py)
-    max_words = 2200
-    total_words = 0
-    filtered_items = []
-    for item in items:
-        words = len(item.get("ai_summary", "").split())
-        if total_words + words > max_words:
-            print(f"Limite de palavras atingido ({total_words} palavras). {len(filtered_items)} noticias incluidas.")
-            break
-        total_words += words
-        filtered_items.append(item)
+    # Top N pra virar Shorts (ordem de relevância do NotebookLM)
+    items = items[:MAX_TECH_SHORTS_PER_RUN]
+    print(f"\n{len(items)} Shorts de tecnologia serão gerados.")
 
-    items = filtered_items
-    print(f"\n{len(items)} noticias de tecnologia para o video ({total_words} palavras).")
-
-    # 2. Montar roteiro
-    consolidated_script = ""
-    for item in items:
-        summary = item.get("ai_summary") or item["title"]
-        consolidated_script += f"{summary}\n\n"
-
-    # Salvar roteiro
+    # Salva roteiro consolidado no Drive (rastreabilidade)
     os.makedirs(DRIVE_SYNC_DIR, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M")
-    filename_base = f"Tech_News_{timestamp}"
+    filename_base = f"Tech_Shorts_{timestamp}"
     md_path = os.path.join(DRIVE_SYNC_DIR, f"{filename_base}.md")
     with open(md_path, "w", encoding="utf-8") as f:
-        f.write(f"# Noticias de Tecnologia - {datetime.now().strftime('%d/%m/%Y')}\n\n")
-        f.write(consolidated_script)
+        f.write(f"# Tech Shorts - {date_str}\n\n")
+        for i, item in enumerate(items, 1):
+            f.write(f"## {i}. {item.get('title', '')}\n\n")
+            f.write(f"{item.get('ai_summary', '')}\n\n")
+            f.write(f"Fonte: {item.get('source', '')}\n\n---\n\n")
     print(f"Roteiro salvo: {md_path}")
 
-    # 3. Gerar audio por segmento
-    print("\n[2/5] Gerando audio com Edge TTS...")
-    intro_text = "Bem-vindo ao seu resumo diario de tecnologia."
-    outro_text = (
-        "Essas foram as principais noticias de tecnologia de hoje. "
-        "Se gostou, se inscreva no canal e ative o sininho para nao perder nenhum resumo. "
-        "Ate a proxima!"
-    )
-    segment_texts = [intro_text] + [
-        item.get("ai_summary") or item["title"] for item in items
-    ] + [outro_text]
+    # 2. Gerar e enviar 1 Short por notícia
+    print(f"\n[2/2] Gerando {len(items)} Shorts (YouTube + TikTok)...")
+    from shorts import generate_short_from_text
 
-    audio_path, all_durations = await generate_audio_segments(
-        segment_texts, AUDIO_OUTPUT_DIR, filename_base
-    )
-    intro_duration = all_durations[0]
-    news_durations = list(all_durations[1:])
-    # Agregar CTA ao ultimo slide
-    if len(news_durations) > len(items):
-        outro_dur = news_durations.pop()
-        news_durations[-1] += outro_dur
+    uploaded_ids = []
+    tech_hashtags = ["Shorts", "Tecnologia", "Tech", "IA", "Inovação"]
 
-    print(f"Audio gerado: {audio_path}")
+    for i, item in enumerate(items, 1):
+        print(f"\n  ── Short {i}/{len(items)} ──")
+        title = item.get("title", "")
+        narration = item.get("ai_summary") or title
+        source = item.get("source", "Tech")
 
-    # 4. Gerar video
-    print("\n[3/5] Gerando video...")
-    video_path = await asyncio.to_thread(
-        generate_video,
-        items,
-        audio_path,
-        CHANNEL_NAME,
-        f"{filename_base}.mp4",
-        news_durations,
-        intro_duration,
-    )
-    print(f"Video gerado: {video_path}")
-
-    # 5. Upload YouTube
-    if YOUTUBE_UPLOAD:
-        print("\n[4/5] Fazendo upload no YouTube...")
-        date_str = datetime.now().strftime("%d/%m/%Y")
-        yt_title = f"Noticias de Tecnologia - {date_str}"
-        yt_description = _build_tech_description(items, date_str)
-        yt_tags = [
-            "tecnologia", "tech", "noticias", "inovacao", "gadgets",
-            "inteligencia artificial", "IA", "programacao", "smartphones",
-        ]
-        privacy = "public" if YOUTUBE_PUBLISH_NOW else "private"
+        if not YOUTUBE_UPLOAD:
+            try:
+                path = await generate_short_from_text(
+                    title=title, narration=narration,
+                    category="Tecnologia", source=source,
+                    upload=False, privacy=privacy,
+                    hashtags=tech_hashtags, playlist_key="tech",
+                    instagram_enabled=False,
+                )
+                print(f"  Vídeo local: {path}")
+            except Exception as e:
+                print(f"  Erro: {e}")
+            continue
 
         try:
-            video_id = await asyncio.to_thread(
-                upload_video,
-                video_path,
-                yt_title,
-                yt_description,
-                yt_tags,
-                5,  # publish hour (se agendado)
-                privacy,
+            video_id = await generate_short_from_text(
+                title=title, narration=narration,
+                category="Tecnologia", source=source,
+                upload=True, privacy=privacy,
+                hashtags=tech_hashtags, playlist_key="tech",
+                instagram_enabled=False,
             )
-            print(f"YouTube: https://youtu.be/{video_id}")
-            add_to_playlist(video_id, "tech")
-
-            # Thumbnail
-            print("\n[5/5] Gerando thumbnail...")
-            from thumbnail import generate_thumbnail
-            thumb_path = os.path.join(AUDIO_OUTPUT_DIR, f"{filename_base}_thumb.jpg")
-            try:
-                generate_thumbnail(items, thumb_path)
-                await asyncio.to_thread(upload_thumbnail, video_id, thumb_path)
-                try:
-                    os.remove(thumb_path)
-                except Exception:
-                    pass
-            except Exception as e:
-                print(f"  Thumbnail ignorada: {e}")
-
-            # Short automatico
-            if YOUTUBE_GENERATE_SHORT:
-                print("\nGerando Short do video tech...")
-                from shorts import generate_short_from_video
-                await asyncio.to_thread(
-                    generate_short_from_video,
-                    video_path,
-                    f"Tech News - {date_str}",
-                    items,
-                    True,
-                    privacy,
-                )
-
-            # Limpar arquivos locais
-            for path, label in [(video_path, "Video"), (audio_path, "Audio")]:
-                try:
-                    os.remove(path)
-                    print(f"{label} local removido: {path}")
-                except Exception as e:
-                    print(f"Aviso: nao foi possivel remover {label.lower()}: {e}")
-
-            from telegram_notifier import notify
-            notify(f"✅ <b>Tech News postado!</b>\n{yt_title}\nhttps://youtu.be/{video_id}")
-            return video_id
-
-        except FileNotFoundError as e:
-            print(f"\nUpload ignorado: {e}")
+            if video_id:
+                uploaded_ids.append(video_id)
         except Exception as e:
-            print(f"\nErro no upload YouTube: {e}")
-            from telegram_notifier import notify
-            notify(f"❌ <b>Erro no upload Tech News:</b> {e}")
-    else:
-        print("\n[4/5] Upload desativado. Video salvo localmente.")
-        print(f"  Video: {video_path}")
-        print(f"  Audio: {audio_path}")
+            print(f"  Erro no Short {i}: {e}")
 
-    return None
+    # Notificação final
+    from telegram_notifier import notify
+    if uploaded_ids:
+        first = uploaded_ids[0]
+        notify(
+            f"✅ <b>Tech Shorts postados!</b>\n"
+            f"{len(uploaded_ids)} Short(s) no ar.\n"
+            f"Primeiro: https://youtu.be/{first}"
+        )
+    elif YOUTUBE_UPLOAD:
+        notify(f"⚠️ <b>Tech Shorts:</b> nenhum Short foi enviado.")
+
+    return uploaded_ids
 
 
 def _sanitize_yt(text: str) -> str:
