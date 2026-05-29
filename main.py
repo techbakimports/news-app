@@ -255,21 +255,26 @@ async def run_news_cycle():
             except Exception as e:
                 print(f"  Thumbnail ignorada: {e}")
 
-            # Short automático — corte vertical dos primeiros 55s
+            # Shorts por categoria — corta o vídeo longo em segmentos verticais
+            # (1 Short por categoria, exceto "Esporte")
             if YOUTUBE_GENERATE_SHORT:
-                print("\nGerando Short do clipe...")
-                from shorts import generate_short_from_video
-                date_str_short = datetime.now().strftime("%d/%m/%Y")
-                await asyncio.to_thread(
-                    generate_short_from_video,
-                    video_path,
-                    f"Notícias — {date_str_short}",
-                    items_to_process,
-                    True,
-                    privacy,
-                )
+                print("\nGerando Shorts por categoria do vídeo longo...")
+                from shorts import generate_shorts_per_category
+                try:
+                    await asyncio.to_thread(
+                        generate_shorts_per_category,
+                        video_path,
+                        items_to_process,
+                        news_durations,
+                        intro_duration,
+                        ["Esporte"],   # categorias excluídas
+                        True,          # upload
+                        privacy,
+                    )
+                except Exception as e:
+                    print(f"Erro ao gerar Shorts por categoria: {e}")
 
-            # Apaga vídeo e áudio locais após upload bem-sucedido
+            # Apaga vídeo e áudio locais SOMENTE após todos os Shorts processados
             for path, label in [(video_path, "Vídeo"), (audio_path, "Áudio")]:
                 try:
                     os.remove(path)

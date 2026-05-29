@@ -1,6 +1,6 @@
 """
 Gera YouTube Shorts verticais (1080×1920) a partir das principais notícias do dia.
-Duração: ~50s por Short — compatível com o algoritmo de Shorts do YouTube.
+Duração: até 3 min por Short — limite máximo do YouTube Shorts (a partir de 2024).
 """
 from __future__ import annotations
 import argparse
@@ -26,7 +26,7 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 
 SHORTS_W, SHORTS_H = 1080, 1920
 FPS = 30
-MAX_WORDS_SHORT = 70       # ~29s de fala + margem de segurança ≤ 58s no total
+MAX_WORDS_SHORT = 400      # ~170s de fala — usa o limite máximo de 3 min do Shorts
 MAX_SHORTS_PER_RUN = 3
 SHORTS_OUTPUT_DIR = "./shorts_videos"
 
@@ -36,18 +36,19 @@ SHORTS_OUTPUT_DIR = "./shorts_videos"
 # ---------------------------------------------------------------------------
 
 def _summarize_for_short(title: str, category: str, content: str) -> str:
-    """Gera um texto de ~60 palavras otimizado para Shorts (impacto imediato)."""
+    """Gera um texto de até 400 palavras otimizado para Shorts (até 3 min de fala)."""
     try:
         from google import genai
         client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
         prompt = (
             f"Você é um apresentador de notícias no estilo TikTok/Shorts — direto, impactante e sem rodeios.\n"
-            f"Escreva UM parágrafo de no máximo 60 palavras sobre a notícia abaixo.\n"
+            f"Escreva UM parágrafo de até 400 palavras sobre a notícia abaixo, cobrindo os principais fatos.\n"
             f"NÃO use markdown, asteriscos ou símbolos. Apenas texto simples em português.\n"
-            f"Comece com a frase mais impactante — prenda a atenção imediatamente.\n\n"
+            f"Comece com a frase mais impactante — prenda a atenção imediatamente.\n"
+            f"Encerre com uma síntese ou desdobramento esperado.\n\n"
             f"Categoria: {category}\n"
             f"Título: {title}\n"
-            f"Conteúdo: {content[:600]}\n"
+            f"Conteúdo: {content[:2500]}\n"
         )
         resp = client.models.generate_content(model="gemini-2.0-flash", contents=prompt)
         text = resp.text.strip()
@@ -371,7 +372,7 @@ def generate_short_from_video(
     items: list[dict],
     upload: bool = True,
     privacy: str = "public",
-    duration_s: float = 55.0,
+    duration_s: float = 180.0,
 ) -> str | None:
     """
     Corta os primeiros `duration_s` segundos do vídeo landscape e converte
@@ -469,6 +470,194 @@ def generate_short_from_video(
     except Exception as e:
         print(f"  Erro no upload do Short: {e}")
         return None
+
+
+# ---------------------------------------------------------------------------
+# Shorts por categoria — corta segmentos do vídeo longo
+# ---------------------------------------------------------------------------
+
+def _cut_vertical_segment(
+    src_video: str,
+    start_s: float,
+    duration_s: float,
+    output_path: str,
+) -> bool:
+    """Corta um segmento [start, start+duration] do video e converte pra vertical com blur."""
+    import subprocess
+
+    filter_graph = (
+        f"[0:v]scale=1080:1920:force_original_aspect_ratio=increase,"
+        f"crop=1080:1920,boxblur=25:5[bg];"
+        f"[0:v]scale=1080:-2[fg];"
+        f"[bg][fg]overlay=(W-w)/2:(H-h)/2"
+    )
+    cmd = [
+        "ffmpeg", "-y",
+        "-ss", f"{start_s:.3f}",
+        "-i", src_video,
+        "-t", f"{duration_s:.3f}",
+        "-filter_complex", filter_graph,
+        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+        "-c:a", "aac", "-b:a", "128k",
+        "-movflags", "+faststart",
+        output_path,
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            print(f"  ffmpeg erro: {result.stderr[-300:]}")
+            return False
+        return True
+    except Exception as e:
+        print(f"  Erro ffmpeg: {e}")
+        return False
+
+
+def generate_shorts_per_category(
+    video_path: str,
+    items: list[dict],
+    news_durations: list[float],
+    intro_duration: float,
+    excluded_categories: list[str] | None = None,
+    upload: bool = True,
+    privacy: str = "public",
+    max_short_duration: float = 180.0,
+) -> list[str]:
+    """
+    Gera um Short por categoria a partir do vídeo longo, pulando categorias excluídas.
+    Pega a PRIMEIRA notícia de cada categoria, calcula timestamps no vídeo e corta.
+
+    Args:
+        video_path: caminho do vídeo MP4 longo (1280×720)
+        items: items_to_process (com category, title, ai_summary, link)
+        news_durations: lista de durações de cada notícia (segundos)
+        intro_duration: duração da intro (segundos)
+        excluded_categories: lista de categorias para pular (case-insensitive)
+        max_short_duration: limite por Short — corta no meio se notícia for maior
+
+    Retorna lista de video_ids dos Shorts enviados.
+    """
+    if not os.path.exists(video_path):
+        print(f"[Shorts/categoria] Vídeo não encontrado: {video_path}")
+        return []
+
+    if len(news_durations) != len(items):
+        print(f"[Shorts/categoria] Mismatch: {len(news_durations)} durações vs {len(items)} itens. Abortando.")
+        return []
+
+    excluded = {c.strip().lower() for c in (excluded_categories or [])}
+
+    # Pega a primeira ocorrência de cada categoria (não-excluída)
+    seen_categories: set[str] = set()
+    selected: list[tuple[int, dict]] = []  # (índice no items, item)
+    for i, item in enumerate(items):
+        cat = (item.get("category") or "").strip()
+        cat_lower = cat.lower()
+        if not cat or cat_lower in excluded or cat_lower in seen_categories:
+            continue
+        seen_categories.add(cat_lower)
+        selected.append((i, item))
+
+    if not selected:
+        print("[Shorts/categoria] Nenhuma notícia selecionável encontrada.")
+        return []
+
+    print(f"\n[Shorts/categoria] Gerando {len(selected)} Short(s): "
+          f"{', '.join(it['category'] for _, it in selected)}")
+    if excluded:
+        print(f"  (excluídas: {', '.join(sorted(excluded))})")
+
+    os.makedirs(SHORTS_OUTPUT_DIR, exist_ok=True)
+    ts_base = datetime.now().strftime("%Y%m%d_%H%M%S")
+    date_str = datetime.now().strftime("%d/%m/%Y")
+
+    # Imports lazy pra evitar custo se nenhum Short for gerado
+    from uploader import upload_video
+    from playlists import add_to_playlist
+
+    uploaded_ids: list[str] = []
+
+    for n, (idx, item) in enumerate(selected, 1):
+        category = item["category"]
+        title = item.get("title", "Notícia")
+
+        # Calcula offset: intro + soma das durações das notícias anteriores
+        start_s = intro_duration + sum(news_durations[:idx])
+        dur_s = min(news_durations[idx], max_short_duration)
+
+        output_path = os.path.join(
+            SHORTS_OUTPUT_DIR,
+            f"Short_{ts_base}_{n:02d}_{category[:15].replace(' ', '_')}.mp4",
+        )
+
+        print(f"\n  [{n}/{len(selected)}] {category}: cortando {dur_s:.1f}s @ {start_s:.1f}s")
+        if not _cut_vertical_segment(video_path, start_s, dur_s, output_path):
+            continue
+
+        size_mb = os.path.getsize(output_path) / 1024 / 1024
+        print(f"    Salvo: {output_path} ({size_mb:.1f} MB)")
+
+        if not upload:
+            continue
+
+        # Upload nas 3 plataformas
+        yt_title = f"{category}: {title[:70]} #Shorts"
+        yt_desc = (
+            f"{category} — {date_str}\n\n"
+            f"{title}\n\n"
+            f"📰 {CHANNEL_NAME} — resumo diário\n"
+            f"#Shorts #Notícias #Brasil #{category.replace(' ', '')}"
+        )
+        yt_tags = ["shorts", "notícias", "brasil", "resumo", category.lower()]
+
+        # YouTube — falha aqui NÃO cancela Instagram nem TikTok
+        try:
+            video_id = upload_video(output_path, yt_title, yt_desc, yt_tags, privacy=privacy)
+            uploaded_ids.append(video_id)
+            print(f"    YouTube: https://youtu.be/{video_id}")
+            try:
+                add_to_playlist(video_id, "noticias")
+            except Exception as e:
+                print(f"    add_to_playlist falhou: {e}")
+        except Exception as e:
+            print(f"    Erro YouTube: {e}")
+
+        # Instagram Reel — independente
+        try:
+            from config import INSTAGRAM_UPLOAD
+            if INSTAGRAM_UPLOAD:
+                from instagram_uploader import upload_reel, INSTAGRAM_ENABLED
+                if INSTAGRAM_ENABLED:
+                    ig_caption = (
+                        f"{category}\n\n{title}\n\n"
+                        f"#noticias #brasil #newsapp #{category.replace(' ', '').lower()}"
+                    )
+                    upload_reel(output_path, ig_caption)
+                    print(f"    Instagram Reel: OK")
+        except Exception as e:
+            print(f"    Instagram Reel falhou: {e}")
+
+        # TikTok — independente
+        try:
+            from config import TIKTOK_UPLOAD
+            if TIKTOK_UPLOAD:
+                from tiktok_uploader import upload_video as tiktok_upload, TIKTOK_ENABLED
+                if TIKTOK_ENABLED:
+                    tk_desc = f"{category}\n\n{title}"
+                    tk_hashtags = ["noticias", "brasil", "newsapp", category.lower().replace(" ", "")]
+                    tiktok_upload(output_path, tk_desc, tk_hashtags)
+                    print(f"    TikTok: OK")
+        except Exception as e:
+            print(f"    TikTok falhou: {e}")
+
+        # Limpa arquivo local do Short
+        try:
+            os.remove(output_path)
+        except Exception:
+            pass
+
+    print(f"\n[Shorts/categoria] Concluído: {len(uploaded_ids)}/{len(selected)} upload(s) OK")
+    return uploaded_ids
 
 
 # ---------------------------------------------------------------------------
