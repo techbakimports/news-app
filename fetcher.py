@@ -155,8 +155,8 @@ def _resolve_google_news_url(url: str, timeout: float = 10.0) -> str:
                 _save_redirect_cache()
                 return real_url
 
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"  _resolve_google_news_url falhou ({type(e).__name__}: {e}). Usando URL original.")
 
     # Falhou — cacheia o fallback pra nao retentar agora
     cache[url] = {"resolved": fallback, "ts": time.time()}
@@ -188,6 +188,8 @@ def fetch_latest_news(limit=1):
     Filtra pelo fuso horário de Brasília (UTC-3).
     """
     all_news = []
+    resolve_ok = 0
+    resolve_fail = 0
 
     for category in CATEGORIES:
         for site in SITES_ALVO:
@@ -233,8 +235,10 @@ def fetch_latest_news(limit=1):
                 resolved_host = _hostname_of(real_link)
                 if resolved_host and "google" not in resolved_host:
                     source_final = resolved_host
+                    resolve_ok += 1
                 else:
                     source_final = "Google News" if site == "google_news" else site
+                    resolve_fail += 1
 
                 news_item = {
                     "category": category,
@@ -247,6 +251,10 @@ def fetch_latest_news(limit=1):
                 all_news.append(news_item)
                 count += 1
 
+    total = resolve_ok + resolve_fail
+    if total > 0:
+        pct = resolve_ok * 100 // total
+        print(f"\n[fetcher] Redirect Google News: {resolve_ok}/{total} resolvidos ({pct}%) | {resolve_fail} fallback")
     return all_news
 
 def extract_article_content(url):

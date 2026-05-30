@@ -6,12 +6,30 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
+import shutil
 import sys
 import numpy as np
 from datetime import datetime
 from PIL import Image, ImageDraw
 from moviepy.editor import AudioFileClip, ImageClip
 from dotenv import load_dotenv
+
+
+def _ffmpeg_binary() -> str:
+    """
+    Retorna o caminho do ffmpeg disponível.
+    Prioridade:
+      1. ffmpeg do PATH do sistema (se houver)
+      2. ffmpeg embutido pelo imageio-ffmpeg (sempre presente — moviepy depende)
+    """
+    sys_ffmpeg = shutil.which("ffmpeg")
+    if sys_ffmpeg:
+        return sys_ffmpeg
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        return "ffmpeg"  # último recurso — vai falhar com mensagem clara
 
 from fetcher import fetch_latest_news, select_unique_news
 from audio import clean_text, _stream_to_bytes
@@ -566,7 +584,7 @@ def generate_short_from_video(
         f"[bg][fg]overlay=(W-w)/2:(H-h)/2"
     )
     cmd = [
-        "ffmpeg", "-y",
+        _ffmpeg_binary(), "-y",
         "-i", video_path,
         "-t", str(duration_s),
         "-filter_complex", filter_graph,
@@ -580,6 +598,10 @@ def generate_short_from_video(
         if result.returncode != 0:
             print(f"  ffmpeg erro: {result.stderr[-300:]}")
             return None
+    except FileNotFoundError as e:
+        print(f"  ffmpeg não encontrado: {e}")
+        print(f"  Tentado: {_ffmpeg_binary()}")
+        return None
     except Exception as e:
         print(f"  Erro ao gerar clipe vertical: {e}")
         return None
@@ -659,7 +681,7 @@ def _cut_vertical_segment(
         f"[bg][fg]overlay=(W-w)/2:(H-h)/2"
     )
     cmd = [
-        "ffmpeg", "-y",
+        _ffmpeg_binary(), "-y",
         "-ss", f"{start_s:.3f}",
         "-i", src_video,
         "-t", f"{duration_s:.3f}",
@@ -675,6 +697,10 @@ def _cut_vertical_segment(
             print(f"  ffmpeg erro: {result.stderr[-300:]}")
             return False
         return True
+    except FileNotFoundError as e:
+        print(f"  ffmpeg não encontrado: {e}")
+        print(f"  Tentado: {_ffmpeg_binary()}")
+        return False
     except Exception as e:
         print(f"  Erro ffmpeg: {e}")
         return False
