@@ -614,7 +614,7 @@ def main():
             print()
 
             # TikTok
-            from tiktok_uploader import TIKTOK_ENABLED
+            from tiktok_publisher import TIKTOK_ENABLED
             print("  TIKTOK")
             if TIKTOK_ENABLED:
                 print("    Status: ATIVO")

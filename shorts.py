@@ -373,12 +373,14 @@ async def generate_short_from_text(
     try:
         from config import TIKTOK_UPLOAD
         if TIKTOK_UPLOAD:
-            from tiktok_uploader import upload_video as tk_upload, TIKTOK_ENABLED
+            from tiktok_publisher import upload_video as tk_upload, TIKTOK_ENABLED
             if TIKTOK_ENABLED:
                 tk_desc = f"{title}\n\n{summary}\n\nFonte: {source}"
                 tk_hashtags = [h.lower() for h in hashtags]
-                tk_upload(output_path, tk_desc, tk_hashtags)
-                print(f"    TikTok: OK")
+                if tk_upload(output_path, tk_desc, tk_hashtags):
+                    print(f"    TikTok: OK")
+                else:
+                    print(f"    TikTok: falhou (ver erro acima)")
     except Exception as e:
         print(f"    TikTok falhou: {e}")
 
@@ -501,7 +503,7 @@ async def generate_short(item: dict, upload: bool = True, privacy: str = "public
             # TikTok — mesmo vídeo vertical
             from config import TIKTOK_UPLOAD
             if TIKTOK_UPLOAD:
-                from tiktok_uploader import upload_video as tiktok_upload, TIKTOK_ENABLED
+                from tiktok_publisher import upload_video as tiktok_upload, TIKTOK_ENABLED
                 if TIKTOK_ENABLED:
                     tk_hashtags = ["noticias", "brasil", "newsapp", category.lower().replace(" ", "")]
                     tk_desc = f"{title}\n\n{summary}\n\nFonte: {source}"
@@ -642,7 +644,7 @@ def generate_short_from_video(
         # TikTok — mesmo vídeo vertical
         from config import TIKTOK_UPLOAD
         if TIKTOK_UPLOAD:
-            from tiktok_uploader import upload_video as tiktok_upload, TIKTOK_ENABLED
+            from tiktok_publisher import upload_video as tiktok_upload, TIKTOK_ENABLED
             if TIKTOK_ENABLED:
                 tk_desc = (
                     f"{title}\n\n"
@@ -834,12 +836,14 @@ def generate_shorts_per_category(
         try:
             from config import TIKTOK_UPLOAD
             if TIKTOK_UPLOAD:
-                from tiktok_uploader import upload_video as tiktok_upload, TIKTOK_ENABLED
+                from tiktok_publisher import upload_video as tiktok_upload, TIKTOK_ENABLED
                 if TIKTOK_ENABLED:
                     tk_desc = f"{category}\n\n{title}"
                     tk_hashtags = ["noticias", "brasil", "newsapp", category.lower().replace(" ", "")]
-                    tiktok_upload(output_path, tk_desc, tk_hashtags)
-                    print(f"    TikTok: OK")
+                    if tiktok_upload(output_path, tk_desc, tk_hashtags):
+                        print(f"    TikTok: OK")
+                    else:
+                        print(f"    TikTok: falhou (ver erro acima)")
         except Exception as e:
             print(f"    TikTok falhou: {e}")
 

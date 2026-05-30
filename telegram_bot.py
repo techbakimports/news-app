@@ -694,7 +694,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 parse_mode="HTML",
             )
         elif dest == "tiktok":
-            from tiktok_uploader import TIKTOK_ENABLED
+            from tiktok_publisher import TIKTOK_ENABLED
             if TIKTOK_ENABLED:
                 status = "✅ <b>ATIVO</b> — cookies configurados"
                 detail = "\nPosts automáticos:\n• Shorts → Vídeo no TikTok"
