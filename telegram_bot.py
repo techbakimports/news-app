@@ -172,6 +172,7 @@ def kb_main() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("💻 Tech Shorts",          callback_data="nav|tech_news")],
         [InlineKeyboardButton("🧠 Curiosidades",         callback_data="nav|curiosidades")],
         [InlineKeyboardButton("🔑 Sessão NotebookLM",   callback_data="run|nlm_check")],
+        [InlineKeyboardButton("📤 Enviar Credenciais",  callback_data="nav|upload_creds")],
     ])
 
 
@@ -440,8 +441,9 @@ async def _run_nlm_check(chat_id: int, bot, msg) -> None:
         text = f"🔑 <b>Sessão NotebookLM</b>\n\n⚠️ Erro: {html_escape(str(exc))}"
 
     kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔄 Verificar novamente", callback_data="run|nlm_check")],
-        [InlineKeyboardButton("⬅️ Voltar",              callback_data="nav|main")],
+        [InlineKeyboardButton("🔄 Verificar novamente",       callback_data="run|nlm_check")],
+        [InlineKeyboardButton("📤 Enviar novo storage_state", callback_data="nav|upload_creds")],
+        [InlineKeyboardButton("⬅️ Voltar",                    callback_data="nav|main")],
     ])
     await _safe_edit(msg, text, reply_markup=kb)
 
@@ -504,6 +506,35 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
+async def cmd_upload(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Atalho rápido: abre direto a tela de envio de credenciais."""
+    if update.effective_chat.id != CHAT_ID:
+        return
+    await update.message.reply_text(
+        "📤 <b>Enviar Credenciais</b>\n\n"
+        "Anexe o arquivo como <b>documento</b> nesta conversa.\n"
+        "O bot detecta pelo nome e salva + valida automaticamente.\n\n"
+        "<b>Aceita:</b>\n"
+        "• <code>storage_state.json</code> ou <code>notebooklm_storage_state.json</code>\n"
+        "   <i>pega em</i> <code>~/.notebooklm/profiles/default/</code>\n"
+        "• <code>tiktok_cookies.json</code>\n"
+        "• <code>token.json</code> (OAuth YouTube)\n"
+        "• <code>ig_session.json</code>",
+        parse_mode="HTML",
+    )
+
+
+async def cmd_nlm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Atalho rápido: check/refresh da sessão NotebookLM."""
+    if update.effective_chat.id != CHAT_ID:
+        return
+    msg = await update.message.reply_text(
+        "🔑 <b>Sessão NotebookLM</b>\n\n⏳ Verificando...",
+        parse_mode="HTML",
+    )
+    asyncio.create_task(_run_nlm_check(update.effective_chat.id, context.bot, msg))
+
+
 async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     q = update.callback_query
     if q.message.chat_id != CHAT_ID:
@@ -556,6 +587,25 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 "• Upload: YouTube (playlist Curiosidades) + TikTok\n"
                 "• <i>Histórico evita repetir tema</i>",
                 reply_markup=kb_curiosidades(), parse_mode="HTML",
+            )
+        elif dest == "upload_creds":
+            await q.edit_message_text(
+                "📤 <b>Enviar Credenciais</b>\n\n"
+                "Envie o arquivo como <b>documento</b> aqui no chat.\n"
+                "O bot detecta o tipo pelo nome e salva automaticamente.\n\n"
+                "<b>Arquivos aceitos:</b>\n"
+                "• <code>storage_state.json</code> — sessão NotebookLM\n"
+                "   <i>Local no PC:</i> <code>~/.notebooklm/profiles/default/</code>\n"
+                "• <code>notebooklm_storage_state.json</code> — mesmo (nome alternativo)\n"
+                "• <code>tiktok_cookies.json</code> — cookies TikTok\n"
+                "   <i>Exporte com extensão 'Get cookies.txt LOCALLY'</i>\n"
+                "• <code>token.json</code> — OAuth YouTube\n"
+                "• <code>ig_session.json</code> — sessão Instagram\n\n"
+                "<i>Após o upload, o bot valida a sessão automaticamente.</i>",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("⬅️ Voltar", callback_data="nav|main")],
+                ]),
+                parse_mode="HTML",
             )
         elif dest == "agenda":
             await q.edit_message_text("⏰ <b>Agendamento</b>", reply_markup=kb_agenda(), parse_mode="HTML")
@@ -964,13 +1014,88 @@ async def on_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     try:
         file = await context.bot.get_file(msg.document.file_id)
         await file.download_to_drive(str(dest_path))
-        await msg.reply_text(
-            f"✅ <code>{target_name}</code> salvo em credentials/\n\n"
-            "Sessão atualizada com sucesso!",
-            parse_mode="HTML",
-        )
     except Exception as e:
         await msg.reply_text(f"❌ Erro ao salvar: {html_escape(str(e))}", parse_mode="HTML")
+        return
+
+    # Salvo — agora valida automaticamente conforme o tipo
+    base_msg = await msg.reply_text(
+        f"✅ <code>{target_name}</code> salvo em credentials/\n\n⏳ Validando...",
+        parse_mode="HTML",
+    )
+
+    # Validação por tipo de arquivo
+    if target_name == "notebooklm_storage_state.json":
+        # Copia também pro caminho padrão do client (~/.notebooklm/profiles/default/storage_state.json)
+        try:
+            from pathlib import Path as _P
+            default_dir = _P.home() / ".notebooklm" / "profiles" / "default"
+            default_dir.mkdir(parents=True, exist_ok=True)
+            import shutil
+            shutil.copy2(dest_path, default_dir / "storage_state.json")
+        except Exception as e:
+            print(f"Aviso: falha ao copiar pro caminho default: {e}")
+
+        # Valida sessão (check() é async)
+        try:
+            from notebooklm_session import check as nlm_check
+            ok = await nlm_check(verbose=False)
+        except Exception as e:
+            await _safe_edit(base_msg,
+                f"✅ <code>{target_name}</code> salvo\n\n"
+                f"⚠️ Erro ao validar sessão: {html_escape(str(e))}")
+            return
+
+        if ok:
+            await _safe_edit(base_msg,
+                f"✅ <code>{target_name}</code> salvo e validado!\n\n"
+                f"🟢 Sessão NotebookLM <b>ATIVA</b>.")
+        else:
+            await _safe_edit(base_msg,
+                f"⚠️ <code>{target_name}</code> salvo, mas <b>sessão NÃO validou</b>.\n\n"
+                "Possíveis causas:\n"
+                "• Arquivo antigo/inválido\n"
+                "• Cookies já expirados ao exportar\n\n"
+                "Tente <code>notebooklm login</code> novamente.")
+        return
+
+    if target_name == "token.json":
+        try:
+            from notebooklm_session import check_youtube
+            ok = await asyncio.to_thread(check_youtube, False)
+            if ok:
+                await _safe_edit(base_msg,
+                    f"✅ <code>token.json</code> salvo!\n\n"
+                    f"🟢 Token YouTube <b>OK</b>.")
+            else:
+                await _safe_edit(base_msg,
+                    f"⚠️ <code>token.json</code> salvo, mas token <b>NÃO validou</b>.\n\n"
+                    "Pode estar expirado sem refresh_token.")
+        except Exception as e:
+            await _safe_edit(base_msg,
+                f"✅ <code>token.json</code> salvo\n\n"
+                f"⚠️ Erro ao validar: {html_escape(str(e))}")
+        return
+
+    if target_name == "tiktok_cookies.json":
+        try:
+            from notebooklm_session import check_tiktok
+            ok = await asyncio.to_thread(check_tiktok, False)
+            if ok:
+                await _safe_edit(base_msg,
+                    f"✅ <code>tiktok_cookies.json</code> salvo!\n\n"
+                    f"🟢 Cookies TikTok presentes.")
+            else:
+                await _safe_edit(base_msg,
+                    f"⚠️ <code>tiktok_cookies.json</code> salvo, mas vazio/corrompido.")
+        except Exception as e:
+            await _safe_edit(base_msg,
+                f"✅ <code>tiktok_cookies.json</code> salvo\n\n"
+                f"⚠️ Erro ao validar: {html_escape(str(e))}")
+        return
+
+    # Demais arquivos: só confirma o salvamento
+    await _safe_edit(base_msg, f"✅ <code>{target_name}</code> salvo em credentials/")
 
 
 # ── main ──────────────────────────────────────────────────────────────────────
@@ -985,6 +1110,8 @@ def main() -> None:
 
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler(["start", "menu"], cmd_start))
+    app.add_handler(CommandHandler("upload", cmd_upload))
+    app.add_handler(CommandHandler("nlm", cmd_nlm))
     app.add_handler(MessageHandler(filters.Document.ALL, on_document))
     app.add_handler(CallbackQueryHandler(on_callback))
 
