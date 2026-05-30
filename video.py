@@ -56,6 +56,7 @@ CATEGORY_COLORS = {
     "Mercado Financeiro": (30, 170, 80),
     "Tecnologia": (30, 180, 200),
     "Policial": (220, 120, 30),
+    "Curiosidade": (245, 180, 30),  # amarelo vibrante — chama atenção
 }
 DEFAULT_COLOR = (100, 100, 200)
 

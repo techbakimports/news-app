@@ -671,10 +671,10 @@ def preflight_check(pipeline: str, upload: bool = True, verbose: bool = True) ->
     critical = []
     warnings = []
 
-    needs_youtube = upload and pipeline in ("noticias", "audio", "shorts", "tech_news")
+    needs_youtube = upload and pipeline in ("noticias", "audio", "shorts", "tech_news", "curiosidades")
     needs_instagram = upload and pipeline in ("noticias", "shorts")
-    needs_tiktok = upload and pipeline in ("shorts",)
-    needs_gemini = pipeline in ("noticias", "shorts")
+    needs_tiktok = upload and pipeline in ("shorts", "tech_news", "curiosidades")
+    needs_gemini = pipeline in ("noticias", "shorts", "curiosidades")
     needs_notebooklm = pipeline in ("tech_news",)
 
     if verbose:

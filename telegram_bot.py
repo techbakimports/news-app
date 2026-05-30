@@ -170,6 +170,7 @@ def kb_main() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("🎵 Status TikTok",        callback_data="nav|tiktok")],
         [InlineKeyboardButton("🔬 Tech Digest",          callback_data="run|tech_digest")],
         [InlineKeyboardButton("💻 Tech Shorts",          callback_data="nav|tech_news")],
+        [InlineKeyboardButton("🧠 Curiosidades",         callback_data="nav|curiosidades")],
         [InlineKeyboardButton("🔑 Sessão NotebookLM",   callback_data="run|nlm_check")],
     ])
 
@@ -188,6 +189,15 @@ def kb_tech_news() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("▶️ Gerar Tech Shorts (público)", callback_data="run|tech_news|pub")],
         [InlineKeyboardButton("💾 Só gerar (sem upload)",       callback_data="run|tech_news|local")],
         [InlineKeyboardButton("🔒 Publicar como privado",       callback_data="run|tech_news|priv")],
+        [InlineKeyboardButton("⬅️ Voltar",                      callback_data="nav|main")],
+    ])
+
+
+def kb_curiosidades() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("▶️ Gerar Curiosidade (público)", callback_data="run|curiosidades|pub")],
+        [InlineKeyboardButton("💾 Só gerar (sem upload)",       callback_data="run|curiosidades|local")],
+        [InlineKeyboardButton("🔒 Publicar como privado",       callback_data="run|curiosidades|priv")],
         [InlineKeyboardButton("⬅️ Voltar",                      callback_data="nav|main")],
     ])
 
@@ -537,6 +547,16 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 "• <i>Sem vídeo longo</i>",
                 reply_markup=kb_tech_news(), parse_mode="HTML",
             )
+        elif dest == "curiosidades":
+            await q.edit_message_text(
+                "🧠 <b>Curiosidades</b>\n\n"
+                "<b>Pipeline gera 1 Short:</b>\n"
+                "• Gemini sorteia tema novo (ciência, história, espaço, animais…)\n"
+                "• Escreve curiosidade impactante (~60-90s)\n"
+                "• Upload: YouTube (playlist Curiosidades) + TikTok\n"
+                "• <i>Histórico evita repetir tema</i>",
+                reply_markup=kb_curiosidades(), parse_mode="HTML",
+            )
         elif dest == "agenda":
             await q.edit_message_text("⏰ <b>Agendamento</b>", reply_markup=kb_agenda(), parse_mode="HTML")
         elif dest == "instagram":
@@ -687,6 +707,8 @@ def _get_pipeline_info(parts: list):
         return ("noticias", parts[1] != "local")
     elif tipo == "tech_news" and len(parts) > 1:
         return ("tech_news", parts[1] != "local")
+    elif tipo == "curiosidades" and len(parts) > 1:
+        return ("curiosidades", parts[1] != "local")
     elif tipo == "audio" and len(parts) > 3:
         return ("audio", parts[3] != "local")
     elif tipo == "shorts" and len(parts) > 2:
@@ -699,7 +721,7 @@ async def _handle_run(q, context, parts: list, force: bool = False) -> None:
     chat_id = q.message.chat_id
 
     # ── bloqueio de concorrência (evita acumular processos) ──────────────────
-    if tipo in ("noticias", "tech_news", "audio", "shorts") and _active_pipelines > 0:
+    if tipo in ("noticias", "tech_news", "curiosidades", "audio", "shorts") and _active_pipelines > 0:
         text = (
             f"⚠️ Já {'existe' if _active_pipelines == 1 else 'existem'} "
             f"<b>{_active_pipelines}</b> pipeline(s) em execução.\n\n"
@@ -733,6 +755,7 @@ async def _handle_run(q, context, parts: list, force: bool = False) -> None:
                     force_data = "force|" + "|".join(parts)
                     back_map = {
                         "noticias": "nav|noticias", "tech_news": "nav|tech_news",
+                        "curiosidades": "nav|curiosidades",
                         "audio": "nav|audio", "shorts": "nav|shorts",
                     }
                     back = back_map.get(tipo, "nav|main")
@@ -782,6 +805,18 @@ async def _handle_run(q, context, parts: list, force: bool = False) -> None:
         elif visib == "local":
             cmd.append("--sem-upload")
         descricao = f"Tech News → YouTube {_VISIB_LABEL[visib]}"
+        asyncio.create_task(_run_pipeline(chat_id, context.bot, cmd, descricao, q.message))
+        return
+
+    # -- curiosidades --
+    if tipo == "curiosidades":
+        visib = parts[1]
+        cmd   = [PYTHON, str(BASE_DIR / "curiosidades.py")]
+        if visib == "priv":
+            cmd.append("--privado")
+        elif visib == "local":
+            cmd.append("--sem-upload")
+        descricao = f"Curiosidade → YouTube {_VISIB_LABEL[visib]}"
         asyncio.create_task(_run_pipeline(chat_id, context.bot, cmd, descricao, q.message))
         return
 

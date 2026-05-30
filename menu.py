@@ -506,6 +506,32 @@ def menu_shorts():
 
 # -- menu principal ------------------------------------------------------------
 
+def menu_curiosidades():
+    while True:
+        cabecalho("-- CURIOSIDADES --")
+        print("  Pipeline: Gemini gera curiosidade aleatoria -> Short -> YouTube + TikTok")
+        print("  (1 Short por execucao, tema sempre novo)")
+        print()
+        print("  1.  Gerar curiosidade (publicar como publico)")
+        print("  2.  So gerar (sem upload)")
+        print("  3.  Gerar e publicar como privado")
+        print()
+        print("  0.  Voltar")
+        print()
+        op = input("  Escolha: ").strip()
+
+        if op == "1":
+            rodar([PYTHON, "curiosidades.py"], "Curiosidade -> YouTube + TikTok publico", pipeline="curiosidades")
+        elif op == "2":
+            rodar([PYTHON, "curiosidades.py", "--sem-upload"], "Curiosidade (sem upload)", pipeline="curiosidades", upload=False)
+        elif op == "3":
+            rodar([PYTHON, "curiosidades.py", "--privado"], "Curiosidade -> YouTube privado", pipeline="curiosidades")
+        elif op == "0":
+            return
+        else:
+            input("  Opcao invalida. [Enter]")
+
+
 def menu_tech_news():
     while True:
         cabecalho("-- TECH SHORTS --")
@@ -539,9 +565,10 @@ def main():
         print("  2.  Postar Audio Longo")
         print("  3.  Shorts")
         print("  4.  Tech Shorts (NotebookLM -> Shorts)")
-        print("  5.  Agendamento")
-        print("  6.  Organizar videos em playlists")
-        print("  7.  Status das Redes Sociais")
+        print("  5.  Curiosidades (Gemini -> 1 Short)")
+        print("  6.  Agendamento")
+        print("  7.  Organizar videos em playlists")
+        print("  8.  Status das Redes Sociais")
         print()
         print("  0.  Sair")
         print()
@@ -556,8 +583,10 @@ def main():
         elif op == "4":
             menu_tech_news()
         elif op == "5":
-            menu_agendamento()
+            menu_curiosidades()
         elif op == "6":
+            menu_agendamento()
+        elif op == "7":
             cabecalho("-- ORGANIZAR PLAYLISTS --")
             print("  Isso vai listar todos os videos do canal e")
             print("  adiciona-los as playlists correspondentes.\n")
@@ -567,7 +596,7 @@ def main():
                 from playlists import organize_existing_videos
                 organize_existing_videos()
             aguardar()
-        elif op == "7":
+        elif op == "8":
             cabecalho("-- REDES SOCIAIS --")
 
             # Instagram

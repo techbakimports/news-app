@@ -17,6 +17,11 @@ PLAYLIST_DEFS = {
         "description": "Resumo diário das principais notícias de tecnologia do Brasil e do mundo.",
         "keywords": ["noticias de tecnologia", "tech news"],
     },
+    "curiosidades": {
+        "title": "Curiosidades 🧠",
+        "description": "Curiosidades aleatórias, fatos surpreendentes e descobertas — em formato Short.",
+        "keywords": ["curiosidade", "você sabia", "fato curioso"],
+    },
     "rain": {
         "title": "Chuva para Dormir e Relaxar 🌧️",
         "description": "Horas de sons de chuva para dormir, estudar e relaxar.",
