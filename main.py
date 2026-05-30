@@ -84,16 +84,26 @@ def cleanup_old_files():
                     print(f"Erro ao remover {f}: {e}")
 
 async def run_news_cycle():
+    pipeline_start = time.time()
+    def _elapsed():
+        m, s = divmod(int(time.time() - pipeline_start), 60)
+        return f"[T+{m:02d}:{s:02d}]"
+
     print(f"--- Iniciando Ciclo Consolidado: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')} ---")
     cleanup_old_files()
 
     # 1. Buscar notícias (3 candidatos por fonte/categoria para permitir dedup por título)
+    print(f"\n{_elapsed()} [FASE 1] Buscando notícias no Google News...")
+    phase_start = time.time()
     raw_news = fetch_latest_news(limit=3)
+    print(f"{_elapsed()} [FASE 1] OK — {len(raw_news)} candidatos em {int(time.time()-phase_start)}s")
 
     # Deduplicação por similaridade de título — evita repetir a mesma história
     # em duas fontes diferentes da mesma categoria
-    print("\nSelecionando notícias únicas por categoria/fonte...")
+    print(f"\n{_elapsed()} [FASE 2] Deduplicando notícias...")
+    phase_start = time.time()
     items_to_process = select_unique_news(raw_news)
+    print(f"{_elapsed()} [FASE 2] OK — {len(items_to_process)} únicas em {int(time.time()-phase_start)}s")
 
     consolidated_script = ""
     total_words = 0
@@ -103,18 +113,23 @@ async def run_news_cycle():
 
     if not os.path.exists(DRIVE_SYNC_DIR): os.makedirs(DRIVE_SYNC_DIR)
 
-    # Fase 1: resumos via NotebookLM (sem limite de API) ou Gemini (fallback)
+    # Fase 3: resumos via NotebookLM (sem limite de API) ou Gemini (fallback)
+    print(f"\n{_elapsed()} [FASE 3] Gerando resumos...")
+    phase_start = time.time()
     summaries = None
     if USE_NOTEBOOKLM_SUMMARIZER and _NOTEBOOKLM_AVAILABLE:
+        print(f"{_elapsed()} [FASE 3] Tentando NotebookLM...")
         summaries = await summarize_news_notebooklm(items_to_process)
         if summaries is None:
-            print("NotebookLM falhou — usando Gemini como fallback.")
+            print(f"{_elapsed()} [FASE 3] NotebookLM falhou — usando Gemini como fallback.")
+        else:
+            print(f"{_elapsed()} [FASE 3] NotebookLM OK em {int(time.time()-phase_start)}s")
     elif USE_NOTEBOOKLM_SUMMARIZER and not _NOTEBOOKLM_AVAILABLE:
         print("notebooklm-py não instalado — usando Gemini como fallback.")
 
     if summaries is None:
         # Fallback: Gemini em lotes de 5 (limite: 20 req/dia)
-        print("\nExtraindo conteúdo dos artigos para o Gemini...")
+        print(f"{_elapsed()} [FASE 3] Extraindo conteúdo dos artigos para o Gemini...")
         for item in items_to_process:
             content = extract_article_content(item["link"])
             item["_content"] = content if content else item.get("summary", "")
@@ -133,6 +148,7 @@ async def run_news_cycle():
             summaries.extend(summarize_news_batch(batch_input))
             if batch_start + BATCH_SIZE < len(items_to_process):
                 await asyncio.sleep(15)
+        print(f"{_elapsed()} [FASE 3] Gemini OK em {int(time.time()-phase_start)}s")
 
     # Montar roteiro consolidado respeitando o limite de ~15 min
     processed_items = []
@@ -173,10 +189,12 @@ async def run_news_cycle():
         item.get("ai_summary") or f"{item['title']} — Fonte: {item['source']}"
         for item in items_to_process
     ] + [outro_text]
-    print("\nGerando áudio por segmento com Edge TTS...")
+    print(f"\n{_elapsed()} [FASE 4] Gerando áudio Edge TTS ({len(segment_texts)} segmentos)...")
+    phase_start = time.time()
     audio_path, all_durations = await generate_audio_segments(
         segment_texts, AUDIO_OUTPUT_DIR, filename_base
     )
+    print(f"{_elapsed()} [FASE 4] OK em {int(time.time()-phase_start)}s — áudio: {sum(all_durations):.0f}s")
     intro_duration = all_durations[0]
     # Último segmento é o outro (CTA) — agregar ao último slide de notícia
     # para que o visual fique na última notícia enquanto o CTA é falado
@@ -191,6 +209,8 @@ async def run_news_cycle():
     print(f"Áudio copiado para o Drive: {drive_audio_path}")
 
     # 8. Gerar vídeo dinâmico com durações reais por segmento
+    print(f"\n{_elapsed()} [FASE 5] Renderizando vídeo MP4...")
+    phase_start = time.time()
     video_path = await asyncio.to_thread(
         generate_video,
         items_to_process,
@@ -200,8 +220,9 @@ async def run_news_cycle():
         news_durations,
         intro_duration,
     )
+    print(f"{_elapsed()} [FASE 5] OK em {int(time.time()-phase_start)}s")
 
-    print(f"\n--- Ciclo Finalizado! ---")
+    print(f"\n{_elapsed()} --- Ciclo Finalizado! ---")
     print(f"Áudio local: {audio_path}")
     print(f"Áudio no Drive: {drive_audio_path}")
     print(f"Roteiro no Drive: {md_path}")
@@ -219,6 +240,8 @@ async def run_news_cycle():
         else:
             print(f"\nUpload agendado para às {YOUTUBE_PUBLISH_HOUR}h...")
 
+        print(f"{_elapsed()} [FASE 6] Upload do vídeo longo no YouTube...")
+        phase_start = time.time()
         try:
             video_id = await asyncio.to_thread(
                 upload_video,
@@ -229,7 +252,7 @@ async def run_news_cycle():
                 YOUTUBE_PUBLISH_HOUR,
                 privacy,
             )
-            print(f"YouTube: https://youtu.be/{video_id}")
+            print(f"{_elapsed()} [FASE 6] OK em {int(time.time()-phase_start)}s — https://youtu.be/{video_id}")
             add_to_playlist(video_id, "noticias")
 
             # Thumbnail automática
@@ -263,7 +286,8 @@ async def run_news_cycle():
             # Shorts por categoria — corta o vídeo longo em segmentos verticais
             # (1 Short por categoria, exceto "Esporte")
             if YOUTUBE_GENERATE_SHORT:
-                print("\nGerando Shorts por categoria do vídeo longo...")
+                print(f"\n{_elapsed()} [FASE 7] Gerando Shorts por categoria...")
+                phase_start = time.time()
                 from shorts import generate_shorts_per_category
                 try:
                     await asyncio.to_thread(
@@ -278,6 +302,7 @@ async def run_news_cycle():
                     )
                 except Exception as e:
                     print(f"Erro ao gerar Shorts por categoria: {e}")
+                print(f"{_elapsed()} [FASE 7] OK em {int(time.time()-phase_start)}s")
 
             # Apaga vídeo e áudio locais SOMENTE após todos os Shorts processados
             for path, label in [(video_path, "Vídeo"), (audio_path, "Áudio")]:
@@ -287,8 +312,13 @@ async def run_news_cycle():
                 except Exception as e:
                     print(f"Aviso: não foi possível remover {label.lower()} local: {e}")
 
+            total_min, total_sec = divmod(int(time.time() - pipeline_start), 60)
+            print(f"\n{_elapsed()} === PIPELINE CONCLUÍDO === ({total_min}m{total_sec:02d}s totais)")
             from telegram_notifier import notify
-            notify(f"✅ <b>Notícias postadas!</b>\n{yt_title}\nhttps://youtu.be/{video_id}")
+            notify(
+                f"✅ <b>Notícias postadas!</b> ({total_min}m{total_sec:02d}s)\n"
+                f"{yt_title}\nhttps://youtu.be/{video_id}"
+            )
         except FileNotFoundError as e:
             print(f"\nUpload ignorado: {e}")
         except Exception as e:

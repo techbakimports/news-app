@@ -53,7 +53,7 @@ _tg_last_edit: float = 0.0
 _TG_MIN_GAP = 3.5  # segundos mínimos entre chamadas consecutivas
 
 # Proteção contra processos travados
-_PIPELINE_TIMEOUT = 1800  # 30 minutos max por pipeline
+_PIPELINE_TIMEOUT = 3600  # 60 minutos max por pipeline (pipeline cresceu: 10 fontes + NotebookLM + 5 Shorts por categoria)
 _active_pipelines: int = 0
 
 
@@ -172,6 +172,7 @@ def kb_main() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("💻 Tech Shorts",          callback_data="nav|tech_news")],
         [InlineKeyboardButton("🧠 Curiosidades",         callback_data="nav|curiosidades")],
         [InlineKeyboardButton("🔑 Sessão NotebookLM",   callback_data="run|nlm_check")],
+        [InlineKeyboardButton("📊 Status Gemini",        callback_data="run|gemini_check")],
         [InlineKeyboardButton("📤 Enviar Credenciais",  callback_data="nav|upload_creds")],
     ])
 
@@ -444,6 +445,74 @@ async def _run_nlm_check(chat_id: int, bot, msg) -> None:
         [InlineKeyboardButton("🔄 Verificar novamente",       callback_data="run|nlm_check")],
         [InlineKeyboardButton("📤 Enviar novo storage_state", callback_data="nav|upload_creds")],
         [InlineKeyboardButton("⬅️ Voltar",                    callback_data="nav|main")],
+    ])
+    await _safe_edit(msg, text, reply_markup=kb)
+
+
+async def _run_gemini_check(chat_id: int, bot, msg) -> None:
+    """Verifica status da cota Gemini fazendo uma chamada teste."""
+    try:
+        await msg.edit_text(
+            "📊 <b>Status Gemini</b>\n\n⏳ Verificando cota...\n"
+            "<i>(uma chamada teste será feita — gasta 1 da cota diária)</i>",
+            parse_mode="HTML",
+        )
+    except Exception:
+        msg = await bot.send_message(
+            chat_id, "📊 <b>Status Gemini</b>\n\n⏳ Verificando...", parse_mode="HTML",
+        )
+
+    try:
+        from notebooklm_session import check_gemini_quota
+        result = await asyncio.to_thread(check_gemini_quota, False)
+    except Exception as e:
+        await _safe_edit(msg, f"📊 <b>Status Gemini</b>\n\n⚠️ Erro ao verificar: {html_escape(str(e))}")
+        return
+
+    status = result.get("status", "error")
+    msg_txt = result.get("message", "")
+
+    if status == "ok":
+        text = (
+            f"📊 <b>Status Gemini</b>\n\n"
+            f"🟢 <b>Cota disponível</b>\n\n"
+            f"{html_escape(msg_txt)}\n\n"
+            f"<i>Plano free: 20 reqs/dia, 5 reqs/min</i>"
+        )
+    elif status == "per_day":
+        text = (
+            f"📊 <b>Status Gemini</b>\n\n"
+            f"🔴 <b>Cota DIÁRIA esgotada</b>\n\n"
+            f"{html_escape(msg_txt)}\n\n"
+            f"<b>Impacto agora:</b>\n"
+            f"• Notícias: fallback automático pra Groq (se configurado)\n"
+            f"• Curiosidades: vai falhar\n"
+            f"• Shorts standalone: vai falhar\n\n"
+            f"<i>Aguarde reset à meia-noite PT (~4h da manhã BR).</i>"
+        )
+    elif status == "per_minute":
+        retry = result.get("retry_in") or 60
+        text = (
+            f"📊 <b>Status Gemini</b>\n\n"
+            f"🟡 <b>Rate limit por minuto</b>\n\n"
+            f"{html_escape(msg_txt)}\n\n"
+            f"Aguarde ~{retry}s e tente novamente."
+        )
+    elif status == "no_key":
+        text = (
+            f"📊 <b>Status Gemini</b>\n\n"
+            f"❌ <b>Sem API key</b>\n\n"
+            f"Adicione <code>GEMINI_API_KEY=...</code> no <code>.env</code>"
+        )
+    else:
+        text = (
+            f"📊 <b>Status Gemini</b>\n\n"
+            f"⚠️ <b>Erro</b>\n\n{html_escape(msg_txt)}"
+        )
+
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔄 Verificar novamente", callback_data="run|gemini_check")],
+        [InlineKeyboardButton("⬅️ Voltar",              callback_data="nav|main")],
     ])
     await _safe_edit(msg, text, reply_markup=kb)
 
@@ -827,6 +896,11 @@ async def _handle_run(q, context, parts: list, force: bool = False) -> None:
     # -- check/refresh sessão NotebookLM --
     if tipo == "nlm_check":
         asyncio.create_task(_run_nlm_check(chat_id, context.bot, q.message))
+        return
+
+    # -- status Gemini (cota) --
+    if tipo == "gemini_check":
+        asyncio.create_task(_run_gemini_check(chat_id, context.bot, q.message))
         return
 
     # -- tech digest --

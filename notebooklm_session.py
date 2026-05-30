@@ -640,6 +640,74 @@ def check_gemini(verbose: bool = True) -> bool:
     return True
 
 
+def check_gemini_quota(verbose: bool = True) -> dict:
+    """
+    Verifica se a cota do Gemini ainda esta disponivel fazendo uma chamada teste.
+    Faz UMA requisicao minima — gasta ~1 chamada da cota diaria.
+
+    Retorna dict:
+      {
+        "status": "ok" | "no_key" | "per_day" | "per_minute" | "error",
+        "message": str amigavel pra exibir,
+        "retry_in": int|None (segundos pro reset quando per_minute),
+        "raw_error": str|None
+      }
+    """
+    from dotenv import load_dotenv
+    load_dotenv()
+
+    key = os.environ.get("GEMINI_API_KEY", "")
+    if not key:
+        if verbose:
+            print("❌ Gemini: sem API key")
+        return {"status": "no_key", "message": "GEMINI_API_KEY ausente no .env"}
+
+    try:
+        from google import genai
+    except ImportError:
+        return {"status": "error", "message": "google-genai não instalado"}
+
+    try:
+        client = genai.Client(api_key=key)
+        # Prompt minimo — 1 token de saida pra gastar o mínimo possível
+        resp = client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents="ok",
+        )
+        _ = resp.text  # so confirma que veio
+        if verbose:
+            print("✅ Gemini: cota OK")
+        return {"status": "ok", "message": "Cota disponível — Gemini funcionando"}
+    except Exception as e:
+        err = str(e)
+        # Detecta tipo do 429
+        if "429" in err:
+            if "PerDay" in err or "per_day" in err.lower():
+                if verbose:
+                    print("❌ Gemini: cota DIÁRIA esgotada (reset à meia-noite PT)")
+                return {
+                    "status": "per_day",
+                    "message": "Cota DIÁRIA esgotada (reset à meia-noite no horário do Pacífico)",
+                    "raw_error": err,
+                }
+            # Tenta extrair retry_delay
+            import re
+            m = re.search(r"retry_delay\s*\{\s*seconds:\s*(\d+)", err)
+            retry = int(m.group(1)) if m else None
+            if verbose:
+                print(f"⚠️ Gemini: rate limit por minuto ({retry}s pra retry)")
+            return {
+                "status": "per_minute",
+                "message": f"Rate limit por minuto atingido"
+                           + (f" — aguarde {retry}s" if retry else ""),
+                "retry_in": retry,
+                "raw_error": err,
+            }
+        if verbose:
+            print(f"❌ Gemini: erro inesperado — {e}")
+        return {"status": "error", "message": f"Erro: {e}", "raw_error": err}
+
+
 def check_notebooklm_quick(verbose: bool = True) -> bool:
     """Verifica rapida: arquivo de sessao existe e nao e muito antigo (< 7 dias)."""
     for path in (CREDENTIALS_STORAGE, DEFAULT_STORAGE):
