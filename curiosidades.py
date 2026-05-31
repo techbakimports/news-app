@@ -187,10 +187,13 @@ async def _gerar_curiosidade() -> dict | None:
 
     # 1) Groq (primário) — usa JSON mode pra garantir estrutura
     groq_key = os.environ.get("GROQ_API_KEY", "")
-    if groq_key and groq_key != "cole_sua_chave_aqui":
+    if not groq_key or groq_key == "cole_sua_chave_aqui":
+        print("  ⚠️  GROQ_API_KEY ausente ou placeholder no .env — pulando Groq")
+    else:
         try:
             from groq import Groq
             client = Groq(api_key=groq_key)
+            print(f"  [Groq] tentando llama-3.3-70b-versatile...")
             resp = client.chat.completions.create(
                 model="llama-3.3-70b-versatile",
                 messages=[{"role": "user", "content": prompt}],
@@ -200,31 +203,36 @@ async def _gerar_curiosidade() -> dict | None:
             text = resp.choices[0].message.content
             result = _parse_curiosidade_json(text)
             if result and result["titulo"] and result["narracao"]:
-                print(f"  [Groq] curiosidade gerada.")
+                print(f"  [Groq] ✅ curiosidade gerada.")
                 return result
-            print(f"  Groq retornou JSON incompleto. Tentando Gemini...")
+            print(f"  [Groq] retornou JSON incompleto. Tentando Gemini...")
+        except ImportError:
+            print(f"  ⚠️  Pacote 'groq' não instalado — pip install groq")
         except Exception as e:
-            print(f"  Groq falhou: {e}. Tentando Gemini...")
+            print(f"  [Groq] falhou: {e}. Tentando Gemini...")
 
     # 2) Gemini (fallback)
     gemini_key = os.environ.get("GEMINI_API_KEY", "")
-    if gemini_key:
+    if not gemini_key:
+        print("  ⚠️  GEMINI_API_KEY ausente — sem fallback")
+    else:
         try:
             from google import genai
             client = genai.Client(api_key=gemini_key)
+            print(f"  [Gemini] tentando gemini-2.0-flash...")
             resp = client.models.generate_content(
                 model="gemini-2.0-flash",
                 contents=prompt,
             )
             result = _parse_curiosidade_json(resp.text)
             if result and result["titulo"] and result["narracao"]:
-                print(f"  [Gemini fallback] curiosidade gerada.")
+                print(f"  [Gemini fallback] ✅ curiosidade gerada.")
                 return result
-            print(f"  Gemini também retornou JSON incompleto.")
+            print(f"  [Gemini] retornou JSON incompleto.")
         except Exception as e:
-            print(f"  Gemini também falhou: {e}")
+            print(f"  [Gemini] também falhou: {e}")
 
-    print("  Nenhum provedor conseguiu gerar curiosidade.")
+    print("  ❌ Nenhum provedor conseguiu gerar curiosidade.")
     return None
 
 
@@ -239,11 +247,11 @@ async def run_curiosidade(on_progress=None):
 
     privacy = "public" if YOUTUBE_PUBLISH_NOW else "private"
 
-    # 1. Gera curiosidade via Gemini
-    print("\n[1/2] Gerando curiosidade via Gemini...")
+    # 1. Gera curiosidade via Groq (primário) → Gemini (fallback)
+    print("\n[1/2] Gerando curiosidade (Groq → Gemini)...")
     if on_progress:
         try:
-            await on_progress("Gerando curiosidade via Gemini...")
+            await on_progress("Gerando curiosidade (Groq → Gemini)...")
         except Exception:
             pass
 
@@ -251,12 +259,21 @@ async def run_curiosidade(on_progress=None):
     if not curiosidade or not curiosidade.get("titulo") or not curiosidade.get("narracao"):
         print("Falha ao gerar curiosidade. Abortando.")
         from telegram_notifier import notify
-        notify("❌ <b>Curiosidades:</b> falha ao gerar conteúdo via Gemini.")
+        notify("❌ <b>Curiosidades:</b> falha ao gerar conteúdo (Groq + Gemini falharam).")
         return None
 
     print(f"  Tema: {curiosidade['tema']}")
     print(f"  Título: {curiosidade['titulo']}")
     print(f"  Narração: {len(curiosidade['narracao'].split())} palavras")
+
+    # Adiciona CTA fixo no final — convite pra curtir, compartilhar e se inscrever
+    cta = (
+        " Curtiu essa curiosidade? Então deixa o seu like, "
+        "compartilha com quem precisa saber disso, "
+        "e se inscreve no canal pra mais curiosidades como essa todo dia."
+    )
+    curiosidade["narracao"] = curiosidade["narracao"].rstrip() + cta
+    print(f"  + CTA: narração final {len(curiosidade['narracao'].split())} palavras")
 
     # Salva no histórico
     _save_history({
