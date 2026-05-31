@@ -195,10 +195,12 @@ def kb_tech_news() -> InlineKeyboardMarkup:
 
 def kb_curiosidades() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("▶️ Gerar Curiosidade (público)", callback_data="run|curiosidades|pub")],
-        [InlineKeyboardButton("💾 Só gerar (sem upload)",       callback_data="run|curiosidades|local")],
-        [InlineKeyboardButton("🔒 Publicar como privado",       callback_data="run|curiosidades|priv")],
-        [InlineKeyboardButton("⬅️ Voltar",                      callback_data="nav|main")],
+        [InlineKeyboardButton("▶️ YouTube + TikTok (público)",   callback_data="run|curiosidades|pub_ambos")],
+        [InlineKeyboardButton("📺 Apenas YouTube (público)",     callback_data="run|curiosidades|pub_yt")],
+        [InlineKeyboardButton("🎵 Apenas TikTok",                callback_data="run|curiosidades|pub_tk")],
+        [InlineKeyboardButton("🔒 YouTube privado (+TikTok)",    callback_data="run|curiosidades|priv_ambos")],
+        [InlineKeyboardButton("💾 Só gerar (sem upload)",        callback_data="run|curiosidades|local")],
+        [InlineKeyboardButton("⬅️ Voltar",                       callback_data="nav|main")],
     ])
 
 
@@ -630,9 +632,9 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             await q.edit_message_text(
                 "🧠 <b>Curiosidades</b>\n\n"
                 "<b>Pipeline gera 1 Short:</b>\n"
-                "• Gemini sorteia tema novo (ciência, história, espaço, animais…)\n"
-                "• Escreve curiosidade impactante (~60-90s)\n"
-                "• Upload: YouTube (playlist Curiosidades) + TikTok\n"
+                "• Groq/Gemini sorteia tema novo (ciência, história, espaço…)\n"
+                "• Escreve curiosidade densa (~2m30s) + CTA\n"
+                "• <b>Escolha a plataforma:</b> YouTube, TikTok ou ambos\n"
                 "• <i>Histórico evita repetir tema</i>",
                 reply_markup=kb_curiosidades(), parse_mode="HTML",
             )
@@ -807,14 +809,42 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         )
         return
 
-    # ── agenda: privacidade de curiosidades ───────────────────────────────────
+    # ── agenda: plataforma de curiosidades ────────────────────────────────────
     if action == "ag_c_priv":
         horarios_str = parts[1]
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📺 + 🎵 YouTube + TikTok", callback_data=f"ag_c_priv2|{horarios_str}|ambos")],
+            [InlineKeyboardButton("📺 Apenas YouTube",        callback_data=f"ag_c_priv2|{horarios_str}|youtube")],
+            [InlineKeyboardButton("🎵 Apenas TikTok",         callback_data=f"ag_c_priv2|{horarios_str}|tiktok")],
+            [InlineKeyboardButton("⬅️ Voltar",                callback_data=f"ag_c_h|{horarios_str}")],
+        ])
         await q.edit_message_text(
-            f"⏰ Curiosidades em <code>{horarios_str.replace(',', ', ')}</code> — Publicar como:",
+            f"⏰ Curiosidades em <code>{horarios_str.replace(',', ', ')}</code> — Plataforma:",
+            reply_markup=kb, parse_mode="HTML",
+        )
+        return
+
+    # ── agenda: privacidade de curiosidades (passo 2 — só relevante pro YT) ───
+    if action == "ag_c_priv2":
+        horarios_str, plataforma = parts[1], parts[2]
+        if plataforma == "tiktok":
+            # TikTok não tem público/privado — vai direto
+            kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton("▶️ Confirmar", callback_data=f"run|ag|ativar_c|{horarios_str}|{plataforma}|pub")],
+                [InlineKeyboardButton("⬅️ Voltar",   callback_data=f"ag_c_priv|{horarios_str}")],
+            ])
+            await q.edit_message_text(
+                f"⏰ Curiosidades em <code>{horarios_str.replace(',', ', ')}</code> — só TikTok:",
+                reply_markup=kb, parse_mode="HTML",
+            )
+            return
+        # Plataforma usa YouTube → escolhe público/privado
+        # callback final: run|ag|ativar_c|<horarios>|<plataforma>|<visib>
+        await q.edit_message_text(
+            f"⏰ Curiosidades em <code>{horarios_str.replace(',', ', ')}</code> ({plataforma}) — YouTube como:",
             reply_markup=_kb_privacidade(
-                f"run|ag|ativar_c|{horarios_str}",
-                f"ag_c_h|{horarios_str}",
+                f"run|ag|ativar_c|{horarios_str}|{plataforma}",
+                f"ag_c_priv|{horarios_str}",
             ),
             parse_mode="HTML",
         )
@@ -943,12 +973,29 @@ async def _handle_run(q, context, parts: list, force: bool = False) -> None:
     # -- curiosidades --
     if tipo == "curiosidades":
         visib = parts[1]
-        cmd   = [PYTHON, str(BASE_DIR / "curiosidades.py")]
-        if visib == "priv":
+        cmd = [PYTHON, str(BASE_DIR / "curiosidades.py")]
+        descricao_extra = ""
+        if visib == "pub_ambos":
+            descricao_extra = "YouTube + TikTok (público)"
+        elif visib == "pub_yt":
+            cmd.append("--apenas-youtube")
+            descricao_extra = "apenas YouTube (público)"
+        elif visib == "pub_tk":
+            cmd.append("--apenas-tiktok")
+            descricao_extra = "apenas TikTok"
+        elif visib == "priv_ambos":
             cmd.append("--privado")
+            descricao_extra = "YouTube privado + TikTok"
         elif visib == "local":
             cmd.append("--sem-upload")
-        descricao = f"Curiosidade → YouTube {_VISIB_LABEL[visib]}"
+            descricao_extra = "local (sem upload)"
+        # Legacy compat
+        elif visib == "priv":
+            cmd.append("--privado")
+            descricao_extra = "YouTube privado"
+        elif visib == "pub":
+            descricao_extra = "YouTube + TikTok"
+        descricao = f"Curiosidade → {descricao_extra}"
         asyncio.create_task(_run_pipeline(chat_id, context.bot, cmd, descricao, q.message))
         return
 
@@ -1019,17 +1066,33 @@ async def _handle_run(q, context, parts: list, force: bool = False) -> None:
             return
 
         if subacao == "ativar_c":
-            horarios_str, visib = parts[2], parts[3]
+            # callback: run|ag|ativar_c|<horarios>|<plataforma>|<visib>
+            # ou compat: run|ag|ativar_c|<horarios>|<visib> (sem plataforma → ambos)
+            if len(parts) >= 5:
+                horarios_str, plataforma, visib = parts[2], parts[3], parts[4]
+            else:
+                horarios_str, visib = parts[2], parts[3]
+                plataforma = "ambos"
             horarios = [h for h in horarios_str.split(",") if h]
             privado = visib == "priv"
             cfg = _ler_cfg()
             try:
-                _criar_agendamento("curiosidades", _cmd_curiosidades(privado), horarios)
-                cfg["curiosidades"] = {"ativo": True, "horarios": horarios, "privado": privado}
+                _criar_agendamento(
+                    "curiosidades",
+                    _cmd_curiosidades(privado, plataforma),
+                    horarios,
+                )
+                cfg["curiosidades"] = {
+                    "ativo": True, "horarios": horarios,
+                    "privado": privado, "plataforma": plataforma,
+                }
                 _salvar_cfg(cfg)
-                priv_label = "privado" if privado else "público"
+                labels = {"ambos": "YouTube + TikTok", "youtube": "apenas YouTube", "tiktok": "apenas TikTok"}
+                plat_label = labels.get(plataforma, plataforma)
+                priv_label = " — privado" if privado and plataforma != "tiktok" else ""
                 await q.edit_message_text(
-                    f"✅ Curiosidades agendadas para <b>{', '.join(horarios)}</b> diariamente ({priv_label}).",
+                    f"✅ Curiosidades agendadas para <b>{', '.join(horarios)}</b> "
+                    f"({plat_label}{priv_label}).",
                     reply_markup=kb_agenda(), parse_mode="HTML",
                 )
             except Exception as e:

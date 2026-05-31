@@ -59,6 +59,10 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 YOUTUBE_UPLOAD = True
 YOUTUBE_PUBLISH_NOW = True
 
+# Plataformas-alvo (modificadas via CLI args)
+POST_YOUTUBE = True
+POST_TIKTOK = True
+
 # Histórico de temas pra evitar repetição
 _HISTORY_FILE = os.path.join(_LOG_DIR, "curiosidades_history.json")
 _HISTORY_MAX = 30  # últimas 30 curiosidades pra Gemini evitar
@@ -292,50 +296,57 @@ async def run_curiosidade(on_progress=None):
 
     from shorts import generate_short_from_text
 
+    common_args = dict(
+        title=curiosidade["titulo"],
+        narration=curiosidade["narracao"],
+        category="Curiosidade",
+        source="Curiosidade do dia",
+        privacy=privacy,
+        hashtags=["Shorts", "Curiosidade", "VoceSabia", "Fatos", "Aprender"],
+        playlist_key="curiosidades",
+        instagram_enabled=False,
+        youtube_enabled=POST_YOUTUBE,
+        tiktok_enabled=POST_TIKTOK,
+    )
+
+    plataformas = []
+    if POST_YOUTUBE: plataformas.append("YouTube")
+    if POST_TIKTOK: plataformas.append("TikTok")
+    print(f"  Plataformas: {' + '.join(plataformas) if plataformas else 'NENHUMA'}")
+
     if not YOUTUBE_UPLOAD:
         try:
-            path = await generate_short_from_text(
-                title=curiosidade["titulo"],
-                narration=curiosidade["narracao"],
-                category="Curiosidade",
-                source="Curiosidade do dia",
-                upload=False,
-                privacy=privacy,
-                hashtags=["Shorts", "Curiosidade", "VoceSabia", "Fatos", "Aprender"],
-                playlist_key="curiosidades",
-                instagram_enabled=False,
-            )
+            path = await generate_short_from_text(upload=False, **common_args)
             print(f"\nVídeo local: {path}")
         except Exception as e:
             print(f"Erro ao gerar vídeo: {e}")
         return None
 
     try:
-        video_id = await generate_short_from_text(
-            title=curiosidade["titulo"],
-            narration=curiosidade["narracao"],
-            category="Curiosidade",
-            source="Curiosidade do dia",
-            upload=True,
-            privacy=privacy,
-            hashtags=["Shorts", "Curiosidade", "VoceSabia", "Fatos", "Aprender"],
-            playlist_key="curiosidades",
-            instagram_enabled=False,
-        )
+        video_id = await generate_short_from_text(upload=True, **common_args)
     except Exception as e:
         print(f"Erro no upload: {e}")
         from telegram_notifier import notify
         notify(f"❌ <b>Curiosidade:</b> erro no upload — {e}")
         return None
 
+    from telegram_notifier import notify
     if video_id:
         print(f"\nCuriosidade publicada: https://youtu.be/{video_id}")
-        from telegram_notifier import notify
         notify(
             f"✅ <b>Curiosidade postada!</b>\n"
             f"<i>{curiosidade['tema']}</i>\n"
             f"{curiosidade['titulo']}\n"
+            f"Plataformas: {' + '.join(plataformas)}\n"
             f"https://youtu.be/{video_id}"
+        )
+    elif POST_TIKTOK and not POST_YOUTUBE:
+        # Só TikTok — sem video_id do YouTube, mas pode ter ido pro TikTok
+        print(f"\nCuriosidade postada (TikTok only)")
+        notify(
+            f"✅ <b>Curiosidade postada no TikTok!</b>\n"
+            f"<i>{curiosidade['tema']}</i>\n"
+            f"{curiosidade['titulo']}"
         )
     return video_id
 
@@ -344,12 +355,18 @@ async def run_curiosidade(on_progress=None):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(prog="curiosidades.py", add_help=True)
-    parser.add_argument("--sem-upload", action="store_true", help="só gera, sem upload")
-    parser.add_argument("--privado", action="store_true", help="publica como privado")
+    parser.add_argument("--sem-upload", action="store_true", help="só gera, sem upload em nenhuma plataforma")
+    parser.add_argument("--privado", action="store_true", help="publica como privado no YouTube")
+    parser.add_argument("--apenas-youtube", action="store_true", help="publica SOMENTE no YouTube")
+    parser.add_argument("--apenas-tiktok", action="store_true", help="publica SOMENTE no TikTok")
     args, _ = parser.parse_known_args()
 
     if args.sem_upload:
         YOUTUBE_UPLOAD = False
+    if args.apenas_youtube:
+        POST_TIKTOK = False
+    if args.apenas_tiktok:
+        POST_YOUTUBE = False
     if args.privado:
         YOUTUBE_PUBLISH_NOW = False
 

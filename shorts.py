@@ -262,6 +262,8 @@ async def generate_short_from_text(
     hashtags: list[str] | None = None,
     playlist_key: str = "noticias",
     instagram_enabled: bool = True,
+    youtube_enabled: bool = True,
+    tiktok_enabled: bool = True,
 ) -> str | None:
     """
     Gera um Short vertical 1080×1920 a partir de TEXTO PRONTO (sem chamar Gemini).
@@ -377,15 +379,18 @@ async def generate_short_from_text(
 
     video_id = None
     # YouTube
-    try:
-        video_id = yt_upload(output_path, yt_title, yt_desc, yt_tags, privacy=privacy)
-        print(f"    YouTube: https://youtu.be/{video_id}")
+    if youtube_enabled:
         try:
-            add_to_playlist(video_id, playlist_key)
+            video_id = yt_upload(output_path, yt_title, yt_desc, yt_tags, privacy=privacy)
+            print(f"    YouTube: https://youtu.be/{video_id}")
+            try:
+                add_to_playlist(video_id, playlist_key)
+            except Exception as e:
+                print(f"    add_to_playlist falhou: {e}")
         except Exception as e:
-            print(f"    add_to_playlist falhou: {e}")
-    except Exception as e:
-        print(f"    Erro YouTube: {e}")
+            print(f"    Erro YouTube: {e}")
+    else:
+        print(f"    YouTube: PULADO (youtube_enabled=False)")
 
     # Instagram
     if instagram_enabled:
@@ -404,19 +409,22 @@ async def generate_short_from_text(
             print(f"    Instagram Reel falhou: {e}")
 
     # TikTok
-    try:
-        from config import TIKTOK_UPLOAD
-        if TIKTOK_UPLOAD:
-            from tiktok_publisher import upload_video as tk_upload, TIKTOK_ENABLED
-            if TIKTOK_ENABLED:
-                tk_desc = f"{title}\n\n{summary}\n\nFonte: {source}"
-                tk_hashtags = [h.lower() for h in hashtags]
-                if tk_upload(output_path, tk_desc, tk_hashtags):
-                    print(f"    TikTok: OK")
-                else:
-                    print(f"    TikTok: falhou (ver erro acima)")
-    except Exception as e:
-        print(f"    TikTok falhou: {e}")
+    if tiktok_enabled:
+        try:
+            from config import TIKTOK_UPLOAD
+            if TIKTOK_UPLOAD:
+                from tiktok_publisher import upload_video as tk_upload, TIKTOK_ENABLED
+                if TIKTOK_ENABLED:
+                    tk_desc = f"{title}\n\n{summary}\n\nFonte: {source}"
+                    tk_hashtags = [h.lower() for h in hashtags]
+                    if tk_upload(output_path, tk_desc, tk_hashtags):
+                        print(f"    TikTok: OK")
+                    else:
+                        print(f"    TikTok: falhou (ver erro acima)")
+        except Exception as e:
+            print(f"    TikTok falhou: {e}")
+    else:
+        print(f"    TikTok: PULADO (tiktok_enabled=False)")
 
     # Cleanup
     try:
