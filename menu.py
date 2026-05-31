@@ -535,7 +535,7 @@ def menu_curiosidades():
 def menu_tech_news():
     while True:
         cabecalho("-- TECH SHORTS --")
-        print("  Pipeline: NotebookLM (10 sites tech) -> N Shorts -> YouTube + TikTok")
+        print("  Pipeline: Google News (10 sites tech) -> Groq/Gemini -> N Shorts -> YouTube + TikTok")
         print("  (SEM video longo — apenas Shorts verticais)")
         print()
         print("  1.  Executar pipeline (publica como publico)")
@@ -564,7 +564,7 @@ def main():
         print("  1.  Postar Noticias")
         print("  2.  Postar Audio Longo")
         print("  3.  Shorts")
-        print("  4.  Tech Shorts (NotebookLM -> Shorts)")
+        print("  4.  Tech Shorts (Google News -> Shorts)")
         print("  5.  Curiosidades (Gemini -> 1 Short)")
         print("  6.  Agendamento")
         print("  7.  Organizar videos em playlists")

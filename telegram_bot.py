@@ -53,7 +53,7 @@ _tg_last_edit: float = 0.0
 _TG_MIN_GAP = 3.5  # segundos mínimos entre chamadas consecutivas
 
 # Proteção contra processos travados
-_PIPELINE_TIMEOUT = 3600  # 60 minutos max por pipeline (pipeline cresceu: 10 fontes + NotebookLM + 5 Shorts por categoria)
+_PIPELINE_TIMEOUT = 3600  # 60 minutos max por pipeline (pipeline cresceu: 10 fontes + 5 Shorts por categoria)
 _active_pipelines: int = 0
 
 
@@ -171,7 +171,6 @@ def kb_main() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("🔬 Tech Digest",          callback_data="run|tech_digest")],
         [InlineKeyboardButton("💻 Tech Shorts",          callback_data="nav|tech_news")],
         [InlineKeyboardButton("🧠 Curiosidades",         callback_data="nav|curiosidades")],
-        [InlineKeyboardButton("🔑 Sessão NotebookLM",   callback_data="run|nlm_check")],
         [InlineKeyboardButton("📊 Status Gemini",        callback_data="run|gemini_check")],
         [InlineKeyboardButton("📤 Enviar Credenciais",  callback_data="nav|upload_creds")],
     ])
@@ -401,54 +400,6 @@ async def _run_pipeline(chat_id: int, bot, cmd: list, descricao: str, msg=None) 
     await _editar(texto)
 
 
-# ── check/refresh sessão NotebookLM ───────────────────────────────────────────
-
-async def _run_nlm_check(chat_id: int, bot, msg) -> None:
-    try:
-        await msg.edit_text(
-            "🔑 <b>Sessão NotebookLM</b>\n\n⏳ Verificando...",
-            parse_mode="HTML",
-        )
-    except Exception:
-        msg = await bot.send_message(
-            chat_id,
-            "🔑 <b>Sessão NotebookLM</b>\n\n⏳ Verificando...",
-            parse_mode="HTML",
-        )
-
-    try:
-        from notebooklm_session import check, refresh as nlm_refresh
-        is_active = await check(verbose=False)
-
-        if is_active:
-            text = "🔑 <b>Sessão NotebookLM</b>\n\n✅ Sessão ATIVA"
-        else:
-            await _safe_edit(msg, "🔑 <b>Sessão NotebookLM</b>\n\n❌ Expirada — tentando auto-refresh...")
-            success = await asyncio.to_thread(nlm_refresh, True)
-            if success:
-                text = "🔑 <b>Sessão NotebookLM</b>\n\n✅ Sessão RENOVADA com sucesso!"
-            else:
-                text = (
-                    "🔑 <b>Sessão NotebookLM</b>\n\n"
-                    "❌ Sessão expirada e auto-refresh falhou.\n\n"
-                    "<b>Como renovar:</b>\n"
-                    "1. No PC com tela, rode:\n"
-                    "   <code>notebooklm login</code>\n"
-                    "2. Envie o arquivo aqui neste chat:\n"
-                    "   <code>storage_state.json</code>\n"
-                    "   (está em ~/.notebooklm/profiles/default/)"
-                )
-    except Exception as exc:
-        text = f"🔑 <b>Sessão NotebookLM</b>\n\n⚠️ Erro: {html_escape(str(exc))}"
-
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔄 Verificar novamente",       callback_data="run|nlm_check")],
-        [InlineKeyboardButton("📤 Enviar novo storage_state", callback_data="nav|upload_creds")],
-        [InlineKeyboardButton("⬅️ Voltar",                    callback_data="nav|main")],
-    ])
-    await _safe_edit(msg, text, reply_markup=kb)
-
-
 async def _run_gemini_check(chat_id: int, bot, msg) -> None:
     """Verifica status da cota Gemini fazendo uma chamada teste."""
     try:
@@ -584,24 +535,11 @@ async def cmd_upload(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         "Anexe o arquivo como <b>documento</b> nesta conversa.\n"
         "O bot detecta pelo nome e salva + valida automaticamente.\n\n"
         "<b>Aceita:</b>\n"
-        "• <code>storage_state.json</code> ou <code>notebooklm_storage_state.json</code>\n"
-        "   <i>pega em</i> <code>~/.notebooklm/profiles/default/</code>\n"
         "• <code>tiktok_cookies.json</code>\n"
         "• <code>token.json</code> (OAuth YouTube)\n"
         "• <code>ig_session.json</code>",
         parse_mode="HTML",
     )
-
-
-async def cmd_nlm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Atalho rápido: check/refresh da sessão NotebookLM."""
-    if update.effective_chat.id != CHAT_ID:
-        return
-    msg = await update.message.reply_text(
-        "🔑 <b>Sessão NotebookLM</b>\n\n⏳ Verificando...",
-        parse_mode="HTML",
-    )
-    asyncio.create_task(_run_nlm_check(update.effective_chat.id, context.bot, msg))
 
 
 async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -641,7 +579,8 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             await q.edit_message_text(
                 "💻 <b>Tech Shorts</b>\n\n"
                 "<b>Pipeline gera APENAS Shorts:</b>\n"
-                "• NotebookLM busca top 5 tópicos tech\n"
+                "• Google News busca top tópicos em 10 sites tech\n"
+                "• Groq resume (fallback Gemini)\n"
                 "• 1 Short vertical por tópico\n"
                 "• Upload: YouTube + TikTok\n"
                 "• <i>Sem vídeo longo</i>",
@@ -663,14 +602,11 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 "Envie o arquivo como <b>documento</b> aqui no chat.\n"
                 "O bot detecta o tipo pelo nome e salva automaticamente.\n\n"
                 "<b>Arquivos aceitos:</b>\n"
-                "• <code>storage_state.json</code> — sessão NotebookLM\n"
-                "   <i>Local no PC:</i> <code>~/.notebooklm/profiles/default/</code>\n"
-                "• <code>notebooklm_storage_state.json</code> — mesmo (nome alternativo)\n"
                 "• <code>tiktok_cookies.json</code> — cookies TikTok\n"
                 "   <i>Exporte com extensão 'Get cookies.txt LOCALLY'</i>\n"
                 "• <code>token.json</code> — OAuth YouTube\n"
                 "• <code>ig_session.json</code> — sessão Instagram\n\n"
-                "<i>Após o upload, o bot valida a sessão automaticamente.</i>",
+                "<i>Após o upload, o bot valida automaticamente.</i>",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("⬅️ Voltar", callback_data="nav|main")],
                 ]),
@@ -893,11 +829,6 @@ async def _handle_run(q, context, parts: list, force: bool = False) -> None:
             except Exception:
                 pass  # erro no preflight não deve bloquear o pipeline
 
-    # -- check/refresh sessão NotebookLM --
-    if tipo == "nlm_check":
-        asyncio.create_task(_run_nlm_check(chat_id, context.bot, q.message))
-        return
-
     # -- status Gemini (cota) --
     if tipo == "gemini_check":
         asyncio.create_task(_run_gemini_check(chat_id, context.bot, q.message))
@@ -920,7 +851,7 @@ async def _handle_run(q, context, parts: list, force: bool = False) -> None:
         asyncio.create_task(_run_pipeline(chat_id, context.bot, cmd, descricao, q.message))
         return
 
-    # -- tech news (vídeo completo via NotebookLM) --
+    # -- tech news (Shorts via Google News + Groq) --
     if tipo == "tech_news":
         visib = parts[1]
         cmd   = [PYTHON, str(BASE_DIR / "tech_news.py")]
@@ -1048,8 +979,6 @@ async def _handle_run(q, context, parts: list, force: bool = False) -> None:
 # ── receber arquivo de credenciais via Telegram ──────────────────────────────
 
 _ACCEPTED_CREDENTIAL_FILES = {
-    "storage_state.json": "notebooklm_storage_state.json",
-    "notebooklm_storage_state.json": "notebooklm_storage_state.json",
     "tiktok_cookies.json": "tiktok_cookies.json",
     "ig_session.json": "ig_session.json",
     "token.json": "token.json",
@@ -1072,8 +1001,6 @@ async def on_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             f"⚠️ Arquivo <code>{html_escape(filename)}</code> não reconhecido.\n\n"
             "Arquivos aceitos:\n"
             "• <code>token.json</code> — OAuth YouTube\n"
-            "• <code>storage_state.json</code> — sessão NotebookLM\n"
-            "• <code>notebooklm_storage_state.json</code> — sessão NotebookLM\n"
             "• <code>tiktok_cookies.json</code> — cookies TikTok\n"
             "• <code>ig_session.json</code> — sessão Instagram",
             parse_mode="HTML",
@@ -1099,40 +1026,6 @@ async def on_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     )
 
     # Validação por tipo de arquivo
-    if target_name == "notebooklm_storage_state.json":
-        # Copia também pro caminho padrão do client (~/.notebooklm/profiles/default/storage_state.json)
-        try:
-            from pathlib import Path as _P
-            default_dir = _P.home() / ".notebooklm" / "profiles" / "default"
-            default_dir.mkdir(parents=True, exist_ok=True)
-            import shutil
-            shutil.copy2(dest_path, default_dir / "storage_state.json")
-        except Exception as e:
-            print(f"Aviso: falha ao copiar pro caminho default: {e}")
-
-        # Valida sessão (check() é async)
-        try:
-            from notebooklm_session import check as nlm_check
-            ok = await nlm_check(verbose=False)
-        except Exception as e:
-            await _safe_edit(base_msg,
-                f"✅ <code>{target_name}</code> salvo\n\n"
-                f"⚠️ Erro ao validar sessão: {html_escape(str(e))}")
-            return
-
-        if ok:
-            await _safe_edit(base_msg,
-                f"✅ <code>{target_name}</code> salvo e validado!\n\n"
-                f"🟢 Sessão NotebookLM <b>ATIVA</b>.")
-        else:
-            await _safe_edit(base_msg,
-                f"⚠️ <code>{target_name}</code> salvo, mas <b>sessão NÃO validou</b>.\n\n"
-                "Possíveis causas:\n"
-                "• Arquivo antigo/inválido\n"
-                "• Cookies já expirados ao exportar\n\n"
-                "Tente <code>notebooklm login</code> novamente.")
-        return
-
     if target_name == "token.json":
         try:
             from notebooklm_session import check_youtube
@@ -1185,7 +1078,6 @@ def main() -> None:
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler(["start", "menu"], cmd_start))
     app.add_handler(CommandHandler("upload", cmd_upload))
-    app.add_handler(CommandHandler("nlm", cmd_nlm))
     app.add_handler(MessageHandler(filters.Document.ALL, on_document))
     app.add_handler(CallbackQueryHandler(on_callback))
 

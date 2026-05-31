@@ -11,11 +11,6 @@ load_dotenv()
 
 from fetcher import fetch_latest_news, extract_article_content, select_unique_news
 from summarizer import summarize_news_batch
-try:
-    from notebooklm_summarizer import summarize_news_notebooklm
-    _NOTEBOOKLM_AVAILABLE = True
-except ImportError:
-    _NOTEBOOKLM_AVAILABLE = False
 from audio import generate_audio_segments
 from video import generate_video
 from uploader import upload_video, build_description, upload_thumbnail
@@ -43,14 +38,8 @@ def print(*args, **kwargs):  # noqa: A001
     if msg.strip():
         log.info(msg)
 
-# True  → NotebookLM gera os resumos (sem limite de API)
-# False → Gemini gera os resumos (limite: 20 req/dia no plano free)
-#
-# Cadeia de fallback automática quando True:
-#   NotebookLM (primário) → Gemini (se NotebookLM falhar) → Groq (se Gemini esgotar cota)
-# Cadeia quando False:
-#   Gemini (primário) → Groq (se Gemini esgotar cota)
-USE_NOTEBOOKLM_SUMMARIZER = True
+# Cadeia de resumos: Groq (primário) → Gemini (fallback) → título.
+# NotebookLM removido completamente — cookies expiravam constantemente.
 
 # Define True para publicar no YouTube após gerar o vídeo.
 YOUTUBE_UPLOAD = True
@@ -113,42 +102,31 @@ async def run_news_cycle():
 
     if not os.path.exists(DRIVE_SYNC_DIR): os.makedirs(DRIVE_SYNC_DIR)
 
-    # Fase 3: resumos via NotebookLM (sem limite de API) ou Gemini (fallback)
-    print(f"\n{_elapsed()} [FASE 3] Gerando resumos...")
+    # Fase 3: resumos via Groq (primário) → Gemini (fallback)
+    print(f"\n{_elapsed()} [FASE 3] Gerando resumos (Groq → Gemini)...")
     phase_start = time.time()
-    summaries = None
-    if USE_NOTEBOOKLM_SUMMARIZER and _NOTEBOOKLM_AVAILABLE:
-        print(f"{_elapsed()} [FASE 3] Tentando NotebookLM...")
-        summaries = await summarize_news_notebooklm(items_to_process)
-        if summaries is None:
-            print(f"{_elapsed()} [FASE 3] NotebookLM falhou — usando Gemini como fallback.")
-        else:
-            print(f"{_elapsed()} [FASE 3] NotebookLM OK em {int(time.time()-phase_start)}s")
-    elif USE_NOTEBOOKLM_SUMMARIZER and not _NOTEBOOKLM_AVAILABLE:
-        print("notebooklm-py não instalado — usando Gemini como fallback.")
 
-    if summaries is None:
-        # Fallback: Gemini em lotes de 5 (limite: 20 req/dia)
-        print(f"{_elapsed()} [FASE 3] Extraindo conteúdo dos artigos para o Gemini...")
-        for item in items_to_process:
-            content = extract_article_content(item["link"])
-            item["_content"] = content if content else item.get("summary", "")
+    print(f"{_elapsed()} [FASE 3] Extraindo conteúdo dos artigos...")
+    for item in items_to_process:
+        content = extract_article_content(item["link"])
+        item["_content"] = content if content else item.get("summary", "")
 
-        BATCH_SIZE = 5
-        summaries = []
-        total_batches = (len(items_to_process) + BATCH_SIZE - 1) // BATCH_SIZE
-        print(f"Gerando resumos em {total_batches} lote(s) de até {BATCH_SIZE} notícias...")
-        for batch_idx, batch_start in enumerate(range(0, len(items_to_process), BATCH_SIZE)):
-            batch = items_to_process[batch_start:batch_start + BATCH_SIZE]
-            batch_input = [
-                {"category": i["category"], "title": i["title"], "content": i["_content"]}
-                for i in batch
-            ]
-            print(f"[Lote {batch_idx + 1}/{total_batches}] {len(batch)} notícias...")
-            summaries.extend(summarize_news_batch(batch_input))
-            if batch_start + BATCH_SIZE < len(items_to_process):
-                await asyncio.sleep(15)
-        print(f"{_elapsed()} [FASE 3] Gemini OK em {int(time.time()-phase_start)}s")
+    BATCH_SIZE = 5
+    summaries = []
+    total_batches = (len(items_to_process) + BATCH_SIZE - 1) // BATCH_SIZE
+    print(f"{_elapsed()} [FASE 3] Gerando em {total_batches} lote(s) de até {BATCH_SIZE} notícias...")
+    for batch_idx, batch_start in enumerate(range(0, len(items_to_process), BATCH_SIZE)):
+        batch = items_to_process[batch_start:batch_start + BATCH_SIZE]
+        batch_input = [
+            {"category": i["category"], "title": i["title"], "content": i["_content"]}
+            for i in batch
+        ]
+        print(f"[Lote {batch_idx + 1}/{total_batches}] {len(batch)} notícias...")
+        summaries.extend(summarize_news_batch(batch_input))
+        # Groq aguenta 30 req/min — sem precisar de sleep grande
+        if batch_start + BATCH_SIZE < len(items_to_process):
+            await asyncio.sleep(2)
+    print(f"{_elapsed()} [FASE 3] OK em {int(time.time()-phase_start)}s")
 
     # Montar roteiro consolidado respeitando o limite de ~15 min
     processed_items = []
@@ -168,7 +146,7 @@ async def run_news_cycle():
 
     items_to_process = processed_items
         
-    # 5. Salvar Texto para NotebookLM
+    # 5. Salvar roteiro consolidado no Drive
     timestamp = datetime.now().strftime('%Y%m%d_%H%M')
     filename_base = f"Resumo_Completo_{timestamp}"
 

@@ -742,8 +742,8 @@ def preflight_check(pipeline: str, upload: bool = True, verbose: bool = True) ->
     needs_youtube = upload and pipeline in ("noticias", "audio", "shorts", "tech_news", "curiosidades")
     needs_instagram = upload and pipeline in ("noticias", "shorts")
     needs_tiktok = upload and pipeline in ("shorts", "tech_news", "curiosidades")
-    needs_gemini = pipeline in ("noticias", "shorts", "curiosidades")
-    needs_notebooklm = pipeline in ("tech_news",)
+    needs_gemini = pipeline in ("noticias", "shorts", "curiosidades", "tech_news")
+    needs_notebooklm = False  # NotebookLM removido — todos os pipelines usam Groq/Gemini
 
     if verbose:
         print()

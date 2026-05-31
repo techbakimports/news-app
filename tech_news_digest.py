@@ -1,35 +1,20 @@
-"""Tech Digest via NotebookLM.
+"""Tech Digest via Google News + Groq.
 
-Cria notebook temporário com os 10 melhores sites de tecnologia,
-pede um resumo das principais notícias do dia, retorna o texto
-e deleta o notebook para permitir reutilização.
+Busca notícias recentes dos 10 melhores sites de tecnologia,
+pede um resumo das principais notícias do dia via Groq (fallback Gemini),
+retorna o texto formatado pra exibir no chat Telegram.
+
+NotebookLM removido — fonte é Google News RSS filtrado por sites tech.
 """
 import asyncio
 import os
 from datetime import datetime
 
-from notebooklm import NotebookLMClient
-
-_NOTEBOOKLM_STORAGE = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), "credentials", "notebooklm_storage_state.json"
-)
-
-TECH_SITES = [
-    "https://www.tecmundo.com.br",
-    "https://tecnoblog.net",
-    "https://olhardigital.com.br",
-    "https://canaltech.com.br",
-    "https://www.tudocelular.com",
-    "https://gizmodo.uol.com.br",
-    "https://www.theverge.com",
-    "https://techcrunch.com",
-    "https://arstechnica.com",
-    "https://www.wired.com",
-]
+from tech_news import TECH_SITES, _fetch_tech_via_google_news
 
 
 async def generate_tech_digest(on_progress=None) -> str:
-    """Gera resumo das principais notícias de tecnologia do dia.
+    """Gera resumo textual das principais notícias de tecnologia do dia.
 
     on_progress: callback async(str) para atualizações de status.
     Retorna o texto do resumo ou mensagem de erro.
@@ -41,73 +26,73 @@ async def generate_tech_digest(on_progress=None) -> str:
         if on_progress:
             await on_progress(msg)
 
+    await _progress("Buscando notícias dos sites tech...")
     try:
-        await _progress("Conectando ao NotebookLM...")
-        storage_path = _NOTEBOOKLM_STORAGE if os.path.exists(_NOTEBOOKLM_STORAGE) else None
-        client = await NotebookLMClient.from_storage(path=storage_path)
-    except FileNotFoundError:
-        return "Autenticacao NotebookLM nao encontrada.\nExecute: notebooklm login"
-    except ValueError:
-        await _progress("Sessao expirada. Tentando auto-refresh...")
+        items = _fetch_tech_via_google_news(limit_per_site=4)
+    except Exception as e:
+        return f"Erro ao buscar notícias: {e}"
+
+    if not items:
+        return "Nenhuma notícia tech encontrada hoje."
+
+    # Pega top 12 mais recentes pra fazer o digest
+    items = items[:12]
+    await _progress(f"{len(items)} notícias encontradas. Gerando resumo...")
+
+    # Monta lista compacta pro LLM
+    news_block = ""
+    for i, item in enumerate(items, 1):
+        news_block += f"\n{i}. {item['title']} ({item['source']})"
+        # Adiciona um trecho do summary se houver
+        if item.get("summary"):
+            from re import sub as _re_sub
+            clean_summary = _re_sub(r"<[^>]+>", "", item["summary"])[:200].strip()
+            if clean_summary:
+                news_block += f"\n   Resumo: {clean_summary}"
+
+    prompt = (
+        f"Você é um curador de notícias de tecnologia. Com base na lista abaixo, "
+        f"produza um resumo organizado das principais novidades de tecnologia de hoje ({date_str}).\n\n"
+        f"REGRAS:\n"
+        f"- Para cada notícia (no máximo 10), escreva:\n"
+        f"  Título curto e claro (em portugues, mesmo se a original for em ingles)\n"
+        f"  Resumo de 1-2 frases explicando o impacto\n"
+        f"- Use apenas texto simples, sem markdown ou asteriscos\n"
+        f"- Organize por importancia/relevancia\n"
+        f"- Português do Brasil\n\n"
+        f"Notícias do dia:{news_block}"
+    )
+
+    # 1) Groq primário
+    groq_key = os.environ.get("GROQ_API_KEY", "")
+    if groq_key and groq_key != "cole_sua_chave_aqui":
         try:
-            from notebooklm_session import refresh
-            if refresh(verbose=False):
-                await _progress("Sessao renovada!")
-                storage_path = _NOTEBOOKLM_STORAGE if os.path.exists(_NOTEBOOKLM_STORAGE) else None
-                client = await NotebookLMClient.from_storage(path=storage_path)
-            else:
-                return "Sessao NotebookLM expirada e auto-refresh falhou.\nExecute: notebooklm login"
+            from groq import Groq
+            client = Groq(api_key=groq_key)
+            await _progress("Resumindo com Groq...")
+            resp = client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.6,
+            )
+            text = resp.choices[0].message.content.strip()
+            return f"Tech Digest — {date_str}\n\n{text}"
         except Exception as e:
-            return f"Sessao expirada e auto-refresh falhou: {e}\nExecute: notebooklm login"
+            await _progress(f"Groq falhou: {e}. Tentando Gemini...")
 
-    async with client:
-        notebook = await client.notebooks.create(title=f"Tech Digest {date_str}")
-        notebook_id = notebook.id
-        await _progress("Notebook criado")
-
+    # 2) Gemini fallback
+    gemini_key = os.environ.get("GEMINI_API_KEY", "")
+    if gemini_key:
         try:
-            await _progress(f"Adicionando {len(TECH_SITES)} sites...")
-            sources = []
-            for i, url in enumerate(TECH_SITES, 1):
-                domain = url.split("//")[1].split("/")[0]
-                try:
-                    source = await client.sources.add_url(notebook_id, url)
-                    sources.append(source)
-                    await _progress(f"  [{i}/{len(TECH_SITES)}] {domain}")
-                except Exception:
-                    await _progress(f"  [{i}/{len(TECH_SITES)}] {domain} (falhou)")
+            from google import genai
+            client = genai.Client(api_key=gemini_key)
+            await _progress("Resumindo com Gemini...")
+            resp = client.models.generate_content(model="gemini-2.0-flash", contents=prompt)
+            return f"Tech Digest — {date_str}\n\n{resp.text.strip()}"
+        except Exception as e:
+            return f"Erro: Gemini também falhou — {e}"
 
-            if not sources:
-                return "Nenhum site pode ser adicionado como fonte."
-
-            await _progress(f"Aguardando processamento de {len(sources)} fontes...")
-            await client.sources.wait_for_sources(
-                notebook_id,
-                [s.id for s in sources],
-                timeout=180.0,
-            )
-            await _progress("Fontes processadas!")
-
-            await _progress("Gerando resumo das noticias...")
-            prompt = (
-                f"Com base em todas as fontes adicionadas, liste as principais "
-                f"noticias de tecnologia de hoje ({date_str}).\n\n"
-                f"Organize por importancia/relevancia. Para cada noticia:\n"
-                f"- Titulo curto e chamativo\n"
-                f"- Resumo de 2-3 frases explicando o que aconteceu\n\n"
-                f"Liste pelo menos 8 noticias, se disponiveis. "
-                f"Responda em portugues do Brasil. Sem markdown — use texto simples."
-            )
-            result = await client.chat.ask(notebook_id, prompt)
-            await _progress("Resumo gerado!")
-            return result.answer
-
-        finally:
-            try:
-                await client.notebooks.delete(notebook_id)
-                await _progress("Notebook deletado.")
-            except Exception:
-                pass
+    return "Nenhum provedor LLM disponível (configure GROQ_API_KEY ou GEMINI_API_KEY)."
 
 
 async def main():

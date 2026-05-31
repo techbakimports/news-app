@@ -1,7 +1,10 @@
 """
 Pipeline de Tech Shorts — produz APENAS Shorts (sem vídeo longo).
 
-Fluxo: NotebookLM (10 sites tech) -> top N tópicos -> 1 Short por tópico -> YouTube + TikTok
+Fluxo: Google News RSS (10 sites tech) -> top N tópicos -> Groq/Gemini resume -> 1 Short por tópico -> YouTube + TikTok
+
+NotebookLM removido — fonte agora é o mesmo Google News RSS do main.py,
+filtrado por sites tech.
 
 Uso:
     python tech_news.py
@@ -10,17 +13,23 @@ Uso:
 """
 import argparse
 import asyncio
-import json
 import logging
 import os
-import re
-import shutil
+import urllib.parse
 from datetime import datetime
 from dotenv import load_dotenv
 
 load_dotenv()
 
 from config import DRIVE_SYNC_DIR, AUDIO_OUTPUT_DIR, CHANNEL_NAME
+from fetcher import (
+    _resolve_google_news_url,
+    _hostname_of,
+    _is_today,
+    extract_article_content,
+    _BROWSER_HEADERS,
+)
+from summarizer import summarize_news_batch
 
 # Logging
 _LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
@@ -48,272 +57,134 @@ def print(*args, **kwargs):  # noqa: A001
 
 YOUTUBE_UPLOAD = True
 YOUTUBE_PUBLISH_NOW = True
-# Tech News agora produz APENAS Shorts (sem vídeo longo).
-# Quantos Shorts gerar por ciclo (top N notícias do NotebookLM):
 MAX_TECH_SHORTS_PER_RUN = 5
 
 
-# -- Sites de tecnologia ------------------------------------------------------
+# -- Sites tech (filtros de busca no Google News) ------------------------------
 
 TECH_SITES = [
-    "https://www.tecmundo.com.br",
-    "https://tecnoblog.net",
-    "https://olhardigital.com.br",
-    "https://canaltech.com.br",
-    "https://www.tudocelular.com",
-    "https://gizmodo.uol.com.br",
-    "https://www.theverge.com",
-    "https://techcrunch.com",
-    "https://arstechnica.com",
-    "https://www.wired.com",
+    "tecmundo.com.br",
+    "tecnoblog.net",
+    "olhardigital.com.br",
+    "canaltech.com.br",
+    "tudocelular.com",
+    "gizmodo.uol.com.br",
+    "theverge.com",
+    "techcrunch.com",
+    "arstechnica.com",
+    "wired.com",
 ]
 
 
-# -- NotebookLM: busca e estrutura as noticias --------------------------------
+# -- Fetch tech news via Google News RSS --------------------------------------
 
-_NOTEBOOKLM_STORAGE = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), "credentials", "notebooklm_storage_state.json"
-)
-
-
-def _notify_session_expired():
-    """Envia notificacao Telegram quando a sessao NotebookLM expira."""
-    try:
-        from telegram_notifier import notify
-        notify(
-            "🔑 <b>Sessao NotebookLM expirada!</b>\n\n"
-            "Auto-refresh falhou.\n"
-            "1. Rode <code>notebooklm login</code> no PC\n"
-            "2. Envie o <code>storage_state.json</code> aqui neste chat"
-        )
-    except Exception:
-        pass
-
-
-async def fetch_tech_news_notebooklm(on_progress=None):
+def _fetch_tech_via_google_news(limit_per_site: int = 5) -> list[dict]:
     """
-    Usa NotebookLM para buscar e estruturar noticias de tecnologia.
-    Retorna lista de dicts: [{title, summary, source, category}]
+    Busca notícias dos sites tech via Google News RSS.
+    Retorna lista de dicts {title, link (resolvido), source, summary}.
     """
-    from notebooklm import NotebookLMClient
+    import feedparser
+    import requests
 
-    date_str = datetime.now().strftime("%d/%m/%Y")
-
-    async def _progress(msg: str):
-        print(msg)
-        if on_progress:
-            await on_progress(msg)
-
-    # Tenta credentials/ local, fallback para path padrão do sistema
-    storage_path = _NOTEBOOKLM_STORAGE if os.path.exists(_NOTEBOOKLM_STORAGE) else None
-    try:
-        client = await NotebookLMClient.from_storage(path=storage_path)
-    except (FileNotFoundError, ValueError) as e:
-        await _progress(f"Sessao expirada: {e}")
-        await _progress("Tentando auto-refresh...")
-        # Tenta renovar via browser profile persistente
-        try:
-            from notebooklm_session import refresh
-            if refresh(verbose=True):
-                await _progress("Sessao renovada! Reconectando...")
-                storage_path = _NOTEBOOKLM_STORAGE if os.path.exists(_NOTEBOOKLM_STORAGE) else None
-                client = await NotebookLMClient.from_storage(path=storage_path)
-            else:
-                print("Auto-refresh falhou. Execute: notebooklm login")
-                _notify_session_expired()
-                return None
-        except Exception as refresh_err:
-            print(f"Erro no auto-refresh: {refresh_err}")
-            print("Execute: notebooklm login")
-            _notify_session_expired()
-            return None
-
-    async with client:
-        notebook = await client.notebooks.create(title=f"Tech News {date_str}")
-        notebook_id = notebook.id
-        await _progress("Notebook criado para Tech News")
-
-        try:
-            await _progress(f"Adicionando {len(TECH_SITES)} sites de tecnologia...")
-            sources = []
-            for i, url in enumerate(TECH_SITES, 1):
-                domain = url.split("//")[1].split("/")[0]
-                try:
-                    source = await client.sources.add_url(notebook_id, url)
-                    sources.append(source)
-                    await _progress(f"  [{i}/{len(TECH_SITES)}] {domain}")
-                except Exception:
-                    await _progress(f"  [{i}/{len(TECH_SITES)}] {domain} (falhou)")
-
-            if not sources:
-                return None
-
-            await _progress(f"Aguardando processamento de {len(sources)} fontes...")
-            await client.sources.wait_for_sources(
-                notebook_id,
-                [s.id for s in sources],
-                timeout=180.0,
-            )
-            await _progress("Fontes processadas!")
-
-            # Pedir noticias em formato estruturado (JSON)
-            await _progress("Gerando noticias estruturadas...")
-            prompt = (
-                f"Com base em todas as fontes, liste as principais noticias de "
-                f"tecnologia de hoje ({date_str}).\n\n"
-                f"Responda EXCLUSIVAMENTE em JSON valido, sem markdown, sem ```json. "
-                f"O formato deve ser uma lista de objetos:\n"
-                f'[{{"title": "titulo curto", "summary": "resumo de 2-3 frases", '
-                f'"source": "nome do site fonte"}}]\n\n'
-                f"Liste entre 8 e 12 noticias, ordenadas por relevancia/importancia. "
-                f"Resumos em portugues do Brasil. Cada resumo deve ter no maximo 150 palavras."
-            )
-            result = await client.chat.ask(notebook_id, prompt)
-            await _progress("Resposta recebida do NotebookLM!")
-
-            # Parse do JSON
-            items = _parse_news_json(result.answer)
-            if items:
-                await _progress(f"{len(items)} noticias extraidas com sucesso.")
-            else:
-                await _progress("Falha ao parsear JSON. Tentando formato livre...")
-                items = _parse_news_freetext(result.answer)
-                if items:
-                    await _progress(f"{len(items)} noticias extraidas (formato livre).")
-
-            return items
-
-        finally:
-            try:
-                await client.notebooks.delete(notebook_id)
-                await _progress("Notebook deletado.")
-            except Exception:
-                pass
-
-
-def _parse_news_json(text: str):
-    """Tenta extrair lista de noticias de um JSON."""
-    # Limpar possivel markdown
-    text = text.strip()
-    if text.startswith("```"):
-        text = re.sub(r"^```(?:json)?\s*", "", text)
-        text = re.sub(r"\s*```$", "", text)
-
-    try:
-        data = json.loads(text)
-        if isinstance(data, list):
-            items = []
-            for entry in data:
-                if isinstance(entry, dict) and "title" in entry:
-                    items.append({
-                        "title": entry.get("title", ""),
-                        "ai_summary": entry.get("summary", entry.get("title", "")),
-                        "source": entry.get("source", "Tech"),
-                        "category": "Tecnologia",
-                        "link": "",
-                    })
-            return items if items else None
-    except (json.JSONDecodeError, ValueError):
-        pass
-
-    # Tentar encontrar array JSON dentro do texto
-    match = re.search(r"\[.*\]", text, re.DOTALL)
-    if match:
-        try:
-            data = json.loads(match.group())
-            if isinstance(data, list):
-                items = []
-                for entry in data:
-                    if isinstance(entry, dict) and "title" in entry:
-                        items.append({
-                            "title": entry.get("title", ""),
-                            "ai_summary": entry.get("summary", entry.get("title", "")),
-                            "source": entry.get("source", "Tech"),
-                            "category": "Tecnologia",
-                            "link": "",
-                        })
-                return items if items else None
-        except (json.JSONDecodeError, ValueError):
-            pass
-
-    return None
-
-
-def _parse_news_freetext(text: str):
-    """Fallback: extrai noticias de texto livre (linhas com titulo/resumo)."""
     items = []
-    # Tenta detectar padrao "N. Titulo\nResumo" ou "- Titulo: Resumo"
-    # Padrao 1: numerado
-    blocks = re.split(r"\n(?=\d+[\.\)]\s)", text)
-    if len(blocks) >= 2:
-        for block in blocks:
-            block = block.strip()
-            if not block:
+    for site in TECH_SITES:
+        query = f"site:{site} when:1d"
+        url = (
+            f"https://news.google.com/rss/search?q={urllib.parse.quote(query)}"
+            f"&hl=pt-BR&gl=BR&ceid=BR:pt-419"
+        )
+        try:
+            r = requests.get(url, timeout=15, headers=_BROWSER_HEADERS)
+            feed = feedparser.parse(r.content)
+        except Exception as e:
+            print(f"  Erro ao buscar {site}: {e}")
+            continue
+
+        count = 0
+        for entry in feed.entries:
+            if count >= limit_per_site:
+                break
+            if not _is_today(entry):
                 continue
-            lines = block.split("\n", 1)
-            title = re.sub(r"^\d+[\.\)]\s*", "", lines[0]).strip()
-            summary = lines[1].strip() if len(lines) > 1 else title
-            if title:
-                items.append({
-                    "title": title,
-                    "ai_summary": summary,
-                    "source": "Tech",
-                    "category": "Tecnologia",
-                    "link": "",
-                })
-        return items if items else None
+            raw_link = entry.link
+            real_link = _resolve_google_news_url(raw_link)
+            host = _hostname_of(real_link)
+            items.append({
+                "title": entry.title,
+                "link": real_link,
+                "source": host if host and "google" not in host else site,
+                "summary": getattr(entry, "summary", ""),
+                "category": "Tecnologia",
+                "_published_parsed": getattr(entry, "published_parsed", None),
+            })
+            count += 1
 
-    # Padrao 2: bullets
-    for line in text.split("\n"):
-        line = line.strip()
-        if line.startswith(("-", "*", "•")):
-            content = line.lstrip("-*• ").strip()
-            if ":" in content:
-                title, summary = content.split(":", 1)
-                items.append({
-                    "title": title.strip(),
-                    "ai_summary": summary.strip(),
-                    "source": "Tech",
-                    "category": "Tecnologia",
-                    "link": "",
-                })
-            elif content:
-                items.append({
-                    "title": content,
-                    "ai_summary": content,
-                    "source": "Tech",
-                    "category": "Tecnologia",
-                    "link": "",
-                })
+    # Dedup por título (palavras significativas)
+    seen_titles = []
+    unique = []
+    for item in items:
+        title_words = {
+            w for w in item["title"].lower().split()
+            if len(w) > 4
+        }
+        is_dup = any(len(title_words & sw) / max(1, min(len(title_words), len(sw))) >= 0.5
+                     for sw in seen_titles if sw)
+        if not is_dup:
+            seen_titles.append(title_words)
+            unique.append(item)
 
-    return items if items else None
+    # Ordena por mais recente
+    unique.sort(
+        key=lambda x: x.get("_published_parsed") or (0,),
+        reverse=True,
+    )
+    return unique
 
 
 # -- Pipeline principal --------------------------------------------------------
 
 async def run_tech_news(on_progress=None):
     """
-    Pipeline Tech News — produz APENAS Shorts (sem vídeo longo).
-    Fluxo: NotebookLM busca top N tópicos -> 1 Short por tópico -> YouTube + TikTok.
+    Pipeline Tech Shorts — Google News (10 sites tech) -> Groq -> Shorts.
     """
     print(f"--- Tech Shorts Pipeline: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')} ---")
 
     privacy = "public" if YOUTUBE_PUBLISH_NOW else "private"
     date_str = datetime.now().strftime("%d/%m/%Y")
 
-    # 1. Buscar notícias via NotebookLM
-    print("\n[1/2] Buscando notícias de tecnologia via NotebookLM...")
-    items = await fetch_tech_news_notebooklm(on_progress=on_progress)
+    # 1. Buscar notícias tech via Google News RSS
+    print("\n[1/3] Buscando notícias de tecnologia (Google News)...")
+    if on_progress:
+        try: await on_progress("Buscando notícias tech...")
+        except Exception: pass
 
-    if not items:
-        print("Nenhuma notícia obtida. Abortando.")
+    raw_items = _fetch_tech_via_google_news(limit_per_site=5)
+    if not raw_items:
+        print("Nenhuma notícia encontrada. Abortando.")
         return None
 
-    # Top N pra virar Shorts (ordem de relevância do NotebookLM)
-    items = items[:MAX_TECH_SHORTS_PER_RUN]
-    print(f"\n{len(items)} Shorts de tecnologia serão gerados.")
+    items = raw_items[:MAX_TECH_SHORTS_PER_RUN]
+    print(f"  {len(raw_items)} candidatas → {len(items)} selecionadas")
 
-    # Salva roteiro consolidado no Drive (rastreabilidade)
+    # 2. Extrair conteúdo + resumir via Groq → Gemini
+    print(f"\n[2/3] Extraindo conteúdo e resumindo ({len(items)} notícias)...")
+    if on_progress:
+        try: await on_progress(f"Resumindo {len(items)} tópicos...")
+        except Exception: pass
+
+    for item in items:
+        content = extract_article_content(item["link"])
+        item["_content"] = content if content else item.get("summary", "")
+
+    batch_input = [
+        {"category": i["category"], "title": i["title"], "content": i["_content"]}
+        for i in items
+    ]
+    summaries = summarize_news_batch(batch_input)
+    for item, summary in zip(items, summaries):
+        item["ai_summary"] = summary or item["title"]
+
+    # Salva roteiro consolidado no Drive
     os.makedirs(DRIVE_SYNC_DIR, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M")
     filename_base = f"Tech_Shorts_{timestamp}"
@@ -323,11 +194,15 @@ async def run_tech_news(on_progress=None):
         for i, item in enumerate(items, 1):
             f.write(f"## {i}. {item.get('title', '')}\n\n")
             f.write(f"{item.get('ai_summary', '')}\n\n")
-            f.write(f"Fonte: {item.get('source', '')}\n\n---\n\n")
+            f.write(f"Fonte: {item.get('source', '')}\nLink: {item.get('link', '')}\n\n---\n\n")
     print(f"Roteiro salvo: {md_path}")
 
-    # 2. Gerar e enviar 1 Short por notícia
-    print(f"\n[2/2] Gerando {len(items)} Shorts (YouTube + TikTok)...")
+    # 3. Gerar Shorts (1 por notícia)
+    print(f"\n[3/3] Gerando {len(items)} Shorts (YouTube + TikTok)...")
+    if on_progress:
+        try: await on_progress(f"Gerando {len(items)} Shorts...")
+        except Exception: pass
+
     from shorts import generate_short_from_text
 
     uploaded_ids = []
@@ -379,38 +254,6 @@ async def run_tech_news(on_progress=None):
         notify(f"⚠️ <b>Tech Shorts:</b> nenhum Short foi enviado.")
 
     return uploaded_ids
-
-
-def _sanitize_yt(text: str) -> str:
-    """Remove caracteres que o YouTube rejeita na descrição."""
-    import re
-    text = re.sub(r"<[^>]*>", "", text)
-    return text.replace("<", "").replace(">", "").strip()
-
-
-def _build_tech_description(items, date_str):
-    """Monta descricao do video com lista de noticias."""
-    lines = [
-        f"Resumo diario das principais noticias de tecnologia - {date_str}",
-        "",
-        "Noticias de hoje:",
-    ]
-    for i, item in enumerate(items, 1):
-        title = _sanitize_yt(item.get("title", ""))
-        source = _sanitize_yt(item.get("source", ""))
-        lines.append(f"{i}. {title} ({source})")
-
-    lines.extend([
-        "",
-        "Fontes: TecMundo, Tecnoblog, Olhar Digital, Canaltech, TudoCelular, "
-        "Gizmodo, The Verge, TechCrunch, Ars Technica, Wired",
-        "",
-        "#tecnologia #tech #noticias #inovacao #IA #programacao",
-    ])
-    desc = "\n".join(lines)
-    if len(desc) > 4900:
-        desc = desc[:4900] + "\n..."
-    return desc
 
 
 # -- Entry point ---------------------------------------------------------------

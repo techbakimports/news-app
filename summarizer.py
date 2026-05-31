@@ -112,7 +112,7 @@ Resumo (somente texto simples):"""
 def summarize_news_batch(items, _retry=True):
     """
     Resume múltiplas notícias em uma única chamada de API.
-    Tenta Gemini primeiro; se o limite diário for atingido, cai para Groq.
+    Cadeia: Groq (primário) → Gemini (fallback) → None.
     Retorna list de str na mesma ordem de items; None para falhas.
     """
     if not items:
@@ -121,18 +121,26 @@ def summarize_news_batch(items, _retry=True):
     prompt = _build_batch_prompt(items)
     n = len(items)
 
-    # --- Gemini ---
+    # --- Groq (primário) — free tier 14.400 req/dia ---
+    if groq_key:
+        try:
+            summaries = _call_groq_batch(prompt, n)
+            print(f"  [Groq] {n} resumos gerados.")
+            return summaries
+        except Exception as e:
+            print(f"  Erro Groq: {e}. Tentando Gemini como fallback...")
+
+    # --- Gemini (fallback) ---
     if gemini_key:
         try:
             summaries = _call_gemini_batch(prompt, n)
-            print(f"  [Gemini] {n} resumos gerados.")
+            print(f"  [Gemini fallback] {n} resumos gerados.")
             return summaries
         except Exception as e:
             err = str(e)
             if '429' in err:
                 if 'PerDay' in err or 'per_day' in err.lower():
-                    print("  Limite DIÁRIO Gemini atingido — usando Groq como fallback...")
-                    # não retorna aqui: cai para o bloco Groq abaixo
+                    print("  Gemini também esgotou cota diária.")
                 elif _retry:
                     m = re.search(r'retry_delay\s*\{\s*seconds:\s*(\d+)', err)
                     wait = int(m.group(1)) + 5 if m else 65
@@ -143,15 +151,6 @@ def summarize_news_batch(items, _retry=True):
                     print(f"  Erro Gemini (retry esgotado): {e}")
             else:
                 print(f"  Erro Gemini: {e}")
-
-    # --- Groq (fallback ou primário se Gemini não configurado) ---
-    if groq_key:
-        try:
-            summaries = _call_groq_batch(prompt, n)
-            print(f"  [Groq] {n} resumos gerados.")
-            return summaries
-        except Exception as e:
-            print(f"  Erro Groq: {e}")
 
     print("  Nenhum provedor disponível. Usando fallback (título).")
     return [None] * n

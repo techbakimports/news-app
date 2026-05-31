@@ -54,27 +54,48 @@ SHORTS_OUTPUT_DIR = "./shorts_videos"
 # ---------------------------------------------------------------------------
 
 def _summarize_for_short(title: str, category: str, content: str) -> str:
-    """Gera um texto de até 400 palavras otimizado para Shorts (até 3 min de fala)."""
+    """
+    Gera texto de até 400 palavras pra Shorts (até 3 min de fala).
+    Cadeia: Groq (primário) → Gemini (fallback) → título.
+    """
+    prompt = (
+        f"Você é um apresentador de notícias no estilo TikTok/Shorts — direto, impactante e sem rodeios.\n"
+        f"Escreva UM parágrafo de até 400 palavras sobre a notícia abaixo, cobrindo os principais fatos.\n"
+        f"NÃO use markdown, asteriscos ou símbolos. Apenas texto simples em português.\n"
+        f"Comece com a frase mais impactante — prenda a atenção imediatamente.\n"
+        f"Encerre com uma síntese ou desdobramento esperado.\n\n"
+        f"Categoria: {category}\n"
+        f"Título: {title}\n"
+        f"Conteúdo: {content[:2500]}\n"
+    )
+
+    # 1) Groq (primário)
+    groq_key = os.getenv("GROQ_API_KEY")
+    if groq_key and groq_key != "cole_sua_chave_aqui":
+        try:
+            from groq import Groq
+            client = Groq(api_key=groq_key)
+            resp = client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.7,
+            )
+            text = resp.choices[0].message.content.strip()
+            words = clean_text(text).split()
+            return " ".join(words[:MAX_WORDS_SHORT])
+        except Exception as e:
+            print(f"  Groq Shorts falhou: {e}. Tentando Gemini...")
+
+    # 2) Gemini (fallback)
     try:
         from google import genai
         client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
-        prompt = (
-            f"Você é um apresentador de notícias no estilo TikTok/Shorts — direto, impactante e sem rodeios.\n"
-            f"Escreva UM parágrafo de até 400 palavras sobre a notícia abaixo, cobrindo os principais fatos.\n"
-            f"NÃO use markdown, asteriscos ou símbolos. Apenas texto simples em português.\n"
-            f"Comece com a frase mais impactante — prenda a atenção imediatamente.\n"
-            f"Encerre com uma síntese ou desdobramento esperado.\n\n"
-            f"Categoria: {category}\n"
-            f"Título: {title}\n"
-            f"Conteúdo: {content[:2500]}\n"
-        )
         resp = client.models.generate_content(model="gemini-2.0-flash", contents=prompt)
         text = resp.text.strip()
-        # Garante no máximo MAX_WORDS_SHORT palavras
         words = clean_text(text).split()
         return " ".join(words[:MAX_WORDS_SHORT])
     except Exception as e:
-        print(f"  Gemini Shorts falhou: {e}. Usando título como fallback.")
+        print(f"  Gemini Shorts também falhou: {e}. Usando título como fallback.")
         words = clean_text(title).split()
         return " ".join(words[:MAX_WORDS_SHORT])
 

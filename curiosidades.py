@@ -113,23 +113,33 @@ _TEMA_POOLS = [
 
 # -- Geração da curiosidade ----------------------------------------------------
 
+def _parse_curiosidade_json(text: str) -> dict | None:
+    """Limpa wrapper markdown e parseia JSON da resposta."""
+    text = text.strip()
+    if text.startswith("```"):
+        lines = text.split("\n")
+        text = "\n".join(lines[1:-1]) if len(lines) >= 3 else text.replace("```", "")
+        text = text.strip()
+        if text.startswith("json"):
+            text = text[4:].strip()
+    try:
+        data = json.loads(text)
+        return {
+            "tema": data.get("tema_escolhido", "Curiosidade"),
+            "titulo": data.get("titulo", "").strip(),
+            "narracao": data.get("curiosidade", "").strip(),
+        }
+    except json.JSONDecodeError:
+        return None
+
+
 async def _gerar_curiosidade() -> dict | None:
     """
-    Usa Gemini pra gerar 1 curiosidade num tema aleatório.
+    Gera 1 curiosidade num tema aleatório.
+    Cadeia: Groq (JSON mode, primário) → Gemini (fallback) → None.
     Retorna dict {tema, titulo, narracao} ou None se falhar.
     """
-    try:
-        from google import genai
-    except ImportError:
-        print("Erro: google-genai não instalado.")
-        return None
-
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key:
-        print("Erro: GEMINI_API_KEY ausente no .env")
-        return None
-
-    # Sorteia 2-3 temas pra Gemini escolher (ajuda a variar)
+    # Sorteia 3 temas pra LLM escolher (ajuda a variar)
     temas_sorteados = random.sample(_TEMA_POOLS, k=3)
 
     # Recupera histórico pra evitar repetição
@@ -171,35 +181,47 @@ async def _gerar_curiosidade() -> dict | None:
     print(f"  Temas oferecidos: {temas_sorteados}")
     print(f"  Histórico carregado: {len(historicos_recentes)} curiosidades anteriores")
 
-    try:
-        client = genai.Client(api_key=api_key)
-        resp = client.models.generate_content(
-            model="gemini-2.0-flash",
-            contents=prompt,
-        )
-        text = resp.text.strip()
+    # 1) Groq (primário) — usa JSON mode pra garantir estrutura
+    groq_key = os.environ.get("GROQ_API_KEY", "")
+    if groq_key and groq_key != "cole_sua_chave_aqui":
+        try:
+            from groq import Groq
+            client = Groq(api_key=groq_key)
+            resp = client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"},
+                temperature=0.9,  # mais criativo
+            )
+            text = resp.choices[0].message.content
+            result = _parse_curiosidade_json(text)
+            if result and result["titulo"] and result["narracao"]:
+                print(f"  [Groq] curiosidade gerada.")
+                return result
+            print(f"  Groq retornou JSON incompleto. Tentando Gemini...")
+        except Exception as e:
+            print(f"  Groq falhou: {e}. Tentando Gemini...")
 
-        # Limpa possível wrapper de markdown
-        if text.startswith("```"):
-            lines = text.split("\n")
-            text = "\n".join(lines[1:-1]) if len(lines) >= 3 else text.replace("```", "")
-            text = text.strip()
-            if text.startswith("json"):
-                text = text[4:].strip()
+    # 2) Gemini (fallback)
+    gemini_key = os.environ.get("GEMINI_API_KEY", "")
+    if gemini_key:
+        try:
+            from google import genai
+            client = genai.Client(api_key=gemini_key)
+            resp = client.models.generate_content(
+                model="gemini-2.0-flash",
+                contents=prompt,
+            )
+            result = _parse_curiosidade_json(resp.text)
+            if result and result["titulo"] and result["narracao"]:
+                print(f"  [Gemini fallback] curiosidade gerada.")
+                return result
+            print(f"  Gemini também retornou JSON incompleto.")
+        except Exception as e:
+            print(f"  Gemini também falhou: {e}")
 
-        data = json.loads(text)
-        return {
-            "tema": data.get("tema_escolhido", "Curiosidade"),
-            "titulo": data.get("titulo", "").strip(),
-            "narracao": data.get("curiosidade", "").strip(),
-        }
-    except json.JSONDecodeError as e:
-        print(f"  Resposta Gemini não é JSON válido: {e}")
-        print(f"  Trecho recebido: {text[:200]}")
-        return None
-    except Exception as e:
-        print(f"  Erro Gemini: {e}")
-        return None
+    print("  Nenhum provedor conseguiu gerar curiosidade.")
+    return None
 
 
 # -- Pipeline principal --------------------------------------------------------
