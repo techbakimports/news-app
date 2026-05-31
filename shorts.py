@@ -53,10 +53,13 @@ SHORTS_OUTPUT_DIR = "./shorts_videos"
 # Summarizer dedicado para Shorts (prompt mais conciso)
 # ---------------------------------------------------------------------------
 
-def _summarize_for_short(title: str, category: str, content: str) -> str:
+def _summarize_for_short(title: str, category: str, content: str) -> str | None:
     """
     Gera texto de até 400 palavras pra Shorts (até 3 min de fala).
-    Cadeia: Groq (primário) → Gemini (fallback) → título.
+    Cadeia: Groq (primário) → Gemini (fallback) → None.
+
+    Retorna None se NENHUM LLM funcionar — caller deve PULAR este Short
+    (não geramos vídeo lendo só o título).
     """
     prompt = (
         f"Você é um apresentador de notícias no estilo TikTok/Shorts — direto, impactante e sem rodeios.\n"
@@ -87,17 +90,21 @@ def _summarize_for_short(title: str, category: str, content: str) -> str:
             print(f"  Groq Shorts falhou: {e}. Tentando Gemini...")
 
     # 2) Gemini (fallback)
-    try:
-        from google import genai
-        client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
-        resp = client.models.generate_content(model="gemini-2.0-flash", contents=prompt)
-        text = resp.text.strip()
-        words = clean_text(text).split()
-        return " ".join(words[:MAX_WORDS_SHORT])
-    except Exception as e:
-        print(f"  Gemini Shorts também falhou: {e}. Usando título como fallback.")
-        words = clean_text(title).split()
-        return " ".join(words[:MAX_WORDS_SHORT])
+    gemini_key = os.getenv("GEMINI_API_KEY", "")
+    if gemini_key:
+        try:
+            from google import genai
+            client = genai.Client(api_key=gemini_key)
+            resp = client.models.generate_content(model="gemini-2.0-flash", contents=prompt)
+            text = resp.text.strip()
+            words = clean_text(text).split()
+            return " ".join(words[:MAX_WORDS_SHORT])
+        except Exception as e:
+            print(f"  Gemini Shorts também falhou: {e}")
+
+    # Nenhum LLM funcionou — retorna None pra caller PULAR este Short
+    print(f"  ❌ Nenhum LLM gerou resumo. Short será PULADO (não vamos ler só o título).")
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -272,7 +279,13 @@ async def generate_short_from_text(
         instagram_enabled: se False, NÃO posta no Instagram mesmo com config ativa
 
     Retorna o video_id do YouTube ou None se falhar.
+    Retorna None ANTES de gerar nada se narration estiver vazia.
     """
+    # Bail-out: sem narração real, não geramos nada (não lemos só o título)
+    if not narration or not narration.strip():
+        print(f"  ⚠️  Narração vazia. Pulando Short '{title[:50]}'.")
+        return None
+
     os.makedirs(SHORTS_OUTPUT_DIR, exist_ok=True)
     os.makedirs(AUDIO_OUTPUT_DIR, exist_ok=True)
 
@@ -432,6 +445,9 @@ async def generate_short(item: dict, upload: bool = True, privacy: str = "public
     # 1. Resumo curto
     print("  [1/4] Resumindo para Shorts...")
     summary = _summarize_for_short(title, category, content)
+    if summary is None:
+        print(f"  ⚠️  Sem resumo de LLM. PULANDO este Short (não geramos vídeo só com título).")
+        return None
     narration = f"{title}. {summary}"
 
     # 2. Áudio TTS

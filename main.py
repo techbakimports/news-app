@@ -128,23 +128,46 @@ async def run_news_cycle():
             await asyncio.sleep(2)
     print(f"{_elapsed()} [FASE 3] OK em {int(time.time()-phase_start)}s")
 
-    # Montar roteiro consolidado respeitando o limite de ~15 min
+    # Monta roteiro consolidado — SO inclui notícias com resumo de LLM real.
+    # Notícias sem resumo são descartadas (não geramos vídeo lendo só o título).
     processed_items = []
+    skipped_no_summary = 0
     for item, summary in zip(items_to_process, summaries):
         if total_words > max_words:
-            print("Limite de 15 minutos atingido. Parando por aqui.")
+            print(f"{_elapsed()} Limite de 15 minutos atingido. Parando por aqui.")
             break
-        if summary:
-            item["ai_summary"] = summary
-            consolidated_script += f"{summary}\n\n"
-            total_words += len(summary.split())
-        else:
-            item["ai_summary"] = None
-            consolidated_script += f"{item['title']} — Fonte: {item['source']}\n\n"
-            total_words += len(item["title"].split()) + 2
+        if not summary:
+            skipped_no_summary += 1
+            continue  # PULA — não lemos só o título
+        item["ai_summary"] = summary
+        consolidated_script += f"{summary}\n\n"
+        total_words += len(summary.split())
         processed_items.append(item)
 
     items_to_process = processed_items
+
+    print(f"{_elapsed()} Notícias com resumo válido: {len(items_to_process)} "
+          f"| pulados sem resumo: {skipped_no_summary}")
+
+    # Aborta se NENHUMA notícia teve resumo — não geramos vídeo só com títulos
+    MIN_NEWS_FOR_VIDEO = 3
+    if len(items_to_process) < MIN_NEWS_FOR_VIDEO:
+        msg = (
+            f"❌ Apenas {len(items_to_process)} notícia(s) com resumo de LLM "
+            f"(mínimo: {MIN_NEWS_FOR_VIDEO}). Provavelmente Groq E Gemini falharam. "
+            f"Pipeline ABORTADO — não geramos vídeo só com títulos."
+        )
+        print(f"\n{msg}")
+        try:
+            from telegram_notifier import notify
+            notify(
+                f"❌ <b>Notícias:</b> pipeline abortado.\n"
+                f"Apenas {len(items_to_process)}/{len(summaries)} notícias com resumo válido.\n"
+                f"Verifique Groq e Gemini."
+            )
+        except Exception:
+            pass
+        return
         
     # 5. Salvar roteiro consolidado no Drive
     timestamp = datetime.now().strftime('%Y%m%d_%H%M')
@@ -163,9 +186,9 @@ async def run_news_cycle():
         "Se gostou, se inscreva no canal e ative o sininho para não perder nenhum resumo. "
         "Até a próxima!"
     )
+    # Todos os items aqui já têm ai_summary garantido (filtro acima)
     segment_texts = [intro_text] + [
-        item.get("ai_summary") or f"{item['title']} — Fonte: {item['source']}"
-        for item in items_to_process
+        item["ai_summary"] for item in items_to_process
     ] + [outro_text]
     print(f"\n{_elapsed()} [FASE 4] Gerando áudio Edge TTS ({len(segment_texts)} segmentos)...")
     phase_start = time.time()

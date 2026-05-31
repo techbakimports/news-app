@@ -181,8 +181,33 @@ async def run_tech_news(on_progress=None):
         for i in items
     ]
     summaries = summarize_news_batch(batch_input)
+
+    # Filtra itens SEM resumo de LLM — não geramos Short só com título
+    items_com_resumo = []
+    pulados = 0
     for item, summary in zip(items, summaries):
-        item["ai_summary"] = summary or item["title"]
+        if summary:
+            item["ai_summary"] = summary
+            items_com_resumo.append(item)
+        else:
+            pulados += 1
+
+    print(f"  Tópicos com resumo: {len(items_com_resumo)} | pulados sem resumo: {pulados}")
+
+    if not items_com_resumo:
+        msg = "❌ Nenhum tópico teve resumo de LLM. Pipeline ABORTADO (Groq + Gemini falharam)."
+        print(f"\n{msg}")
+        try:
+            from telegram_notifier import notify
+            notify(
+                f"❌ <b>Tech Shorts:</b> pipeline abortado.\n"
+                f"Nenhum tópico com resumo válido.\nVerifique Groq e Gemini."
+            )
+        except Exception:
+            pass
+        return None
+
+    items = items_com_resumo
 
     # Salva roteiro consolidado no Drive
     os.makedirs(DRIVE_SYNC_DIR, exist_ok=True)
@@ -211,7 +236,7 @@ async def run_tech_news(on_progress=None):
     for i, item in enumerate(items, 1):
         print(f"\n  ── Short {i}/{len(items)} ──")
         title = item.get("title", "")
-        narration = item.get("ai_summary") or title
+        narration = item["ai_summary"]  # garantido (filtramos acima)
         source = item.get("source", "Tech")
 
         if not YOUTUBE_UPLOAD:
