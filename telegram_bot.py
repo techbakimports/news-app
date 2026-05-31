@@ -23,7 +23,7 @@ from html import escape as html_escape
 from dotenv import load_dotenv
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.error import RetryAfter
-from telegram.ext import Application, CallbackQueryHandler, CommandHandler, MessageHandler, ContextTypes, filters
+from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
 
 load_dotenv()
 
@@ -172,7 +172,6 @@ def kb_main() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("💻 Tech Shorts",          callback_data="nav|tech_news")],
         [InlineKeyboardButton("🧠 Curiosidades",         callback_data="nav|curiosidades")],
         [InlineKeyboardButton("📊 Status Gemini",        callback_data="run|gemini_check")],
-        [InlineKeyboardButton("📤 Enviar Credenciais",  callback_data="nav|upload_creds")],
     ])
 
 
@@ -261,17 +260,25 @@ def kb_qtd(fonte: str, visib: str) -> InlineKeyboardMarkup:
     ])
 
 
+def _status_label(entry: dict) -> str:
+    if not entry.get("ativo"):
+        return "❌ inativo"
+    horarios = entry.get("horarios") or ([entry["horario"]] if "horario" in entry else [])
+    return "✅ " + ", ".join(horarios) if horarios else "✅ (sem horários)"
+
+
 def kb_agenda() -> InlineKeyboardMarkup:
     cfg = _ler_cfg()
-    n, a = cfg["noticias"], cfg["audio"]
-    sn = f"✅ {n['horario']}" if n["ativo"] else "❌ inativo"
-    sa = f"✅ {a['horario']}" if a["ativo"] else "❌ inativo"
+    n, a, c = cfg["noticias"], cfg["audio"], cfg["curiosidades"]
+    sn, sa, sc = _status_label(n), _status_label(a), _status_label(c)
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(f"📰 Notícias — {sn}",     callback_data="ag_n_hora")],
         [InlineKeyboardButton(f"🎵 Áudio Longo — {sa}",  callback_data="ag_a_tipo")],
-        [InlineKeyboardButton("🗑️ Desativar Notícias",    callback_data="run|ag|des|noticias")],
-        [InlineKeyboardButton("🗑️ Desativar Áudio Longo", callback_data="run|ag|des|audio")],
-        [InlineKeyboardButton("⬅️ Voltar",                callback_data="nav|main")],
+        [InlineKeyboardButton(f"🧠 Curiosidades — {sc}", callback_data="ag_c_hora")],
+        [InlineKeyboardButton("🗑️ Desativar Notícias",     callback_data="run|ag|des|noticias")],
+        [InlineKeyboardButton("🗑️ Desativar Áudio Longo",  callback_data="run|ag|des|audio")],
+        [InlineKeyboardButton("🗑️ Desativar Curiosidades", callback_data="run|ag|des|curiosidades")],
+        [InlineKeyboardButton("⬅️ Voltar",                 callback_data="nav|main")],
     ])
 
 
@@ -282,6 +289,55 @@ def _kb_horarios(prefixo: str, back: str) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(h, callback_data=f"{prefixo}|{h}") for h in horarios[3:]],
         [InlineKeyboardButton("⬅️ Voltar", callback_data=back)],
     ])
+
+
+def _kb_picker_horarios(prefix_h: str, horarios_str: str, back: str,
+                        prefix_next: str, extra_params: str = "") -> InlineKeyboardMarkup:
+    """
+    Picker de múltiplos horários (toggle).
+    Cada botão de hora alterna se está na lista.
+    'extra_params' vai concatenado em prefix_next (ex: tipo|horas pro áudio).
+    """
+    horarios_atuais = [h for h in horarios_str.split(",") if h] if horarios_str else []
+    horas = ["05:00", "06:00", "07:00", "08:00", "09:00", "10:00",
+             "12:00", "14:00", "16:00", "18:00", "20:00", "22:00"]
+    rows = []
+    for i in range(0, len(horas), 3):
+        row = []
+        for h in horas[i:i+3]:
+            if h in horarios_atuais:
+                novo = [x for x in horarios_atuais if x != h]
+                row.append(InlineKeyboardButton(
+                    f"✓ {h}", callback_data=f"{prefix_h}|{','.join(novo)}"
+                ))
+            else:
+                novo = sorted(horarios_atuais + [h])
+                row.append(InlineKeyboardButton(
+                    h, callback_data=f"{prefix_h}|{','.join(novo)}"
+                ))
+        rows.append(row)
+    if horarios_atuais:
+        next_data = f"{prefix_next}|{extra_params}|{horarios_str}" if extra_params else f"{prefix_next}|{horarios_str}"
+        rows.append([InlineKeyboardButton(
+            f"✅ Continuar ({len(horarios_atuais)} horário{'s' if len(horarios_atuais) > 1 else ''})",
+            callback_data=next_data,
+        )])
+        rows.append([InlineKeyboardButton("🗑️ Limpar", callback_data=f"{prefix_h}|")])
+    rows.append([InlineKeyboardButton("⬅️ Voltar", callback_data=back)])
+    return InlineKeyboardMarkup(rows)
+
+
+def _ag_titulo(nome: str, horarios: list[str]) -> str:
+    if horarios:
+        return (
+            f"⏰ <b>{nome}</b> — Horários selecionados:\n"
+            f"<code>{', '.join(horarios)}</code>\n\n"
+            f"Toque pra adicionar/remover. Vários horários permitidos."
+        )
+    return (
+        f"⏰ <b>{nome}</b> — Selecione um ou mais horários diários.\n"
+        f"<i>Toque numa hora pra adicionar. Toque de novo pra remover.</i>"
+    )
 
 
 def _kb_privacidade(prefixo: str, back: str) -> InlineKeyboardMarkup:
@@ -526,22 +582,6 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
-async def cmd_upload(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Atalho rápido: abre direto a tela de envio de credenciais."""
-    if update.effective_chat.id != CHAT_ID:
-        return
-    await update.message.reply_text(
-        "📤 <b>Enviar Credenciais</b>\n\n"
-        "Anexe o arquivo como <b>documento</b> nesta conversa.\n"
-        "O bot detecta pelo nome e salva + valida automaticamente.\n\n"
-        "<b>Aceita:</b>\n"
-        "• <code>tiktok_cookies.json</code>\n"
-        "• <code>token.json</code> (OAuth YouTube)\n"
-        "• <code>ig_session.json</code>",
-        parse_mode="HTML",
-    )
-
-
 async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     q = update.callback_query
     if q.message.chat_id != CHAT_ID:
@@ -595,22 +635,6 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 "• Upload: YouTube (playlist Curiosidades) + TikTok\n"
                 "• <i>Histórico evita repetir tema</i>",
                 reply_markup=kb_curiosidades(), parse_mode="HTML",
-            )
-        elif dest == "upload_creds":
-            await q.edit_message_text(
-                "📤 <b>Enviar Credenciais</b>\n\n"
-                "Envie o arquivo como <b>documento</b> aqui no chat.\n"
-                "O bot detecta o tipo pelo nome e salva automaticamente.\n\n"
-                "<b>Arquivos aceitos:</b>\n"
-                "• <code>tiktok_cookies.json</code> — cookies TikTok\n"
-                "   <i>Exporte com extensão 'Get cookies.txt LOCALLY'</i>\n"
-                "• <code>token.json</code> — OAuth YouTube\n"
-                "• <code>ig_session.json</code> — sessão Instagram\n\n"
-                "<i>Após o upload, o bot valida automaticamente.</i>",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("⬅️ Voltar", callback_data="nav|main")],
-                ]),
-                parse_mode="HTML",
             )
         elif dest == "agenda":
             await q.edit_message_text("⏰ <b>Agendamento</b>", reply_markup=kb_agenda(), parse_mode="HTML")
@@ -724,21 +748,74 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         )
         return
 
-    # ── agenda: horário diário de notícias ────────────────────────────────────
+    # ── agenda: horários de notícias (entrada) ────────────────────────────────
     if action == "ag_n_hora":
+        cfg = _ler_cfg()
+        atual = cfg["noticias"].get("horarios", []) if cfg["noticias"].get("ativo") else []
+        horarios_str = ",".join(atual)
         await q.edit_message_text(
-            "⏰ <b>Notícias</b> — Horário diário:",
-            reply_markup=_kb_horarios("ag_n_priv", "nav|agenda"),
+            _ag_titulo("Notícias", atual),
+            reply_markup=_kb_picker_horarios("ag_n_h", horarios_str, "nav|agenda", "ag_n_priv"),
+            parse_mode="HTML",
+        )
+        return
+
+    # ── agenda: toggle de horário de notícias ─────────────────────────────────
+    if action == "ag_n_h":
+        horarios_str = parts[1] if len(parts) > 1 else ""
+        atual = [h for h in horarios_str.split(",") if h]
+        await q.edit_message_text(
+            _ag_titulo("Notícias", atual),
+            reply_markup=_kb_picker_horarios("ag_n_h", horarios_str, "nav|agenda", "ag_n_priv"),
             parse_mode="HTML",
         )
         return
 
     # ── agenda: privacidade de notícias ───────────────────────────────────────
     if action == "ag_n_priv":
-        horario = parts[1]
+        horarios_str = parts[1]
         await q.edit_message_text(
-            f"⏰ Notícias às {horario} — Publicar como:",
-            reply_markup=_kb_privacidade(f"run|ag|ativar_n|{horario}", "ag_n_hora"),
+            f"⏰ Notícias em <code>{horarios_str.replace(',', ', ')}</code> — Publicar como:",
+            reply_markup=_kb_privacidade(
+                f"run|ag|ativar_n|{horarios_str}",
+                f"ag_n_h|{horarios_str}",
+            ),
+            parse_mode="HTML",
+        )
+        return
+
+    # ── agenda: horários de curiosidades (entrada) ────────────────────────────
+    if action == "ag_c_hora":
+        cfg = _ler_cfg()
+        atual = cfg["curiosidades"].get("horarios", []) if cfg["curiosidades"].get("ativo") else []
+        horarios_str = ",".join(atual)
+        await q.edit_message_text(
+            _ag_titulo("Curiosidades", atual),
+            reply_markup=_kb_picker_horarios("ag_c_h", horarios_str, "nav|agenda", "ag_c_priv"),
+            parse_mode="HTML",
+        )
+        return
+
+    # ── agenda: toggle de horário de curiosidades ─────────────────────────────
+    if action == "ag_c_h":
+        horarios_str = parts[1] if len(parts) > 1 else ""
+        atual = [h for h in horarios_str.split(",") if h]
+        await q.edit_message_text(
+            _ag_titulo("Curiosidades", atual),
+            reply_markup=_kb_picker_horarios("ag_c_h", horarios_str, "nav|agenda", "ag_c_priv"),
+            parse_mode="HTML",
+        )
+        return
+
+    # ── agenda: privacidade de curiosidades ───────────────────────────────────
+    if action == "ag_c_priv":
+        horarios_str = parts[1]
+        await q.edit_message_text(
+            f"⏰ Curiosidades em <code>{horarios_str.replace(',', ', ')}</code> — Publicar como:",
+            reply_markup=_kb_privacidade(
+                f"run|ag|ativar_c|{horarios_str}",
+                f"ag_c_h|{horarios_str}",
+            ),
             parse_mode="HTML",
         )
         return
@@ -924,16 +1001,35 @@ async def _handle_run(q, context, parts: list, force: bool = False) -> None:
         subacao = parts[1]
 
         if subacao == "ativar_n":
-            horario, visib = parts[2], parts[3]
+            horarios_str, visib = parts[2], parts[3]
+            horarios = [h for h in horarios_str.split(",") if h]
             privado = visib == "priv"
-            cfg     = _ler_cfg()
+            cfg = _ler_cfg()
             try:
-                _criar_agendamento("noticias", _cmd_noticias(privado), horario)
-                cfg["noticias"] = {"ativo": True, "horario": horario, "privado": privado}
+                _criar_agendamento("noticias", _cmd_noticias(privado), horarios)
+                cfg["noticias"] = {"ativo": True, "horarios": horarios, "privado": privado}
                 _salvar_cfg(cfg)
                 priv_label = "privado" if privado else "público"
                 await q.edit_message_text(
-                    f"✅ Notícias agendadas para <b>{horario}</b> diariamente ({priv_label}).",
+                    f"✅ Notícias agendadas para <b>{', '.join(horarios)}</b> diariamente ({priv_label}).",
+                    reply_markup=kb_agenda(), parse_mode="HTML",
+                )
+            except Exception as e:
+                await q.edit_message_text(f"❌ Erro ao agendar: {e}", reply_markup=kb_agenda())
+            return
+
+        if subacao == "ativar_c":
+            horarios_str, visib = parts[2], parts[3]
+            horarios = [h for h in horarios_str.split(",") if h]
+            privado = visib == "priv"
+            cfg = _ler_cfg()
+            try:
+                _criar_agendamento("curiosidades", _cmd_curiosidades(privado), horarios)
+                cfg["curiosidades"] = {"ativo": True, "horarios": horarios, "privado": privado}
+                _salvar_cfg(cfg)
+                priv_label = "privado" if privado else "público"
+                await q.edit_message_text(
+                    f"✅ Curiosidades agendadas para <b>{', '.join(horarios)}</b> diariamente ({priv_label}).",
                     reply_markup=kb_agenda(), parse_mode="HTML",
                 )
             except Exception as e:
@@ -942,17 +1038,19 @@ async def _handle_run(q, context, parts: list, force: bool = False) -> None:
 
         if subacao == "ativar_a":
             audio_tipo, horas, horario, visib = parts[2], parts[3], parts[4], parts[5]
+            # Compat: aceita horario simples (str) ou lista separada por vírgula
+            horarios = [h for h in horario.split(",") if h] if "," in horario else [horario]
             privado = visib == "priv"
-            cfg     = _ler_cfg()
-            label   = SONS.get(audio_tipo, audio_tipo.title())
+            cfg = _ler_cfg()
+            label = SONS.get(audio_tipo, audio_tipo.title())
             try:
-                _criar_agendamento("audio", _cmd_audio(audio_tipo, float(horas), privado), horario)
-                cfg["audio"] = {"ativo": True, "horario": horario, "tipo": audio_tipo,
+                _criar_agendamento("audio", _cmd_audio(audio_tipo, float(horas), privado), horarios)
+                cfg["audio"] = {"ativo": True, "horarios": horarios, "tipo": audio_tipo,
                                 "horas": float(horas), "privado": privado}
                 _salvar_cfg(cfg)
                 priv_label = "privado" if privado else "público"
                 await q.edit_message_text(
-                    f"✅ {label} {horas}h agendado para <b>{horario}</b> diariamente ({priv_label}).",
+                    f"✅ {label} {horas}h agendado para <b>{', '.join(horarios)}</b> diariamente ({priv_label}).",
                     reply_markup=kb_agenda(), parse_mode="HTML",
                 )
             except Exception as e:
@@ -961,12 +1059,13 @@ async def _handle_run(q, context, parts: list, force: bool = False) -> None:
 
         if subacao == "des":
             tipo_ag = parts[2]
-            cfg     = _ler_cfg()
+            cfg = _ler_cfg()
             try:
                 _remover_agendamento(tipo_ag)
                 cfg[tipo_ag]["ativo"] = False
                 _salvar_cfg(cfg)
-                nome = "Notícias" if tipo_ag == "noticias" else "Áudio Longo"
+                nomes = {"noticias": "Notícias", "audio": "Áudio Longo", "curiosidades": "Curiosidades"}
+                nome = nomes.get(tipo_ag, tipo_ag)
                 await q.edit_message_text(
                     f"✅ Agendamento de {nome} removido.",
                     reply_markup=kb_agenda(),
@@ -974,95 +1073,6 @@ async def _handle_run(q, context, parts: list, force: bool = False) -> None:
             except Exception as e:
                 await q.edit_message_text(f"❌ Erro: {e}", reply_markup=kb_agenda())
             return
-
-
-# ── receber arquivo de credenciais via Telegram ──────────────────────────────
-
-_ACCEPTED_CREDENTIAL_FILES = {
-    "tiktok_cookies.json": "tiktok_cookies.json",
-    "ig_session.json": "ig_session.json",
-    "token.json": "token.json",
-}
-
-
-async def on_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Recebe arquivos de credenciais enviados pelo chat e salva em credentials/."""
-    msg = update.message
-    if not msg or not msg.document:
-        return
-    if str(msg.chat_id) != str(CHAT_ID):
-        return
-
-    filename = msg.document.file_name or ""
-    target_name = _ACCEPTED_CREDENTIAL_FILES.get(filename)
-
-    if not target_name:
-        await msg.reply_text(
-            f"⚠️ Arquivo <code>{html_escape(filename)}</code> não reconhecido.\n\n"
-            "Arquivos aceitos:\n"
-            "• <code>token.json</code> — OAuth YouTube\n"
-            "• <code>tiktok_cookies.json</code> — cookies TikTok\n"
-            "• <code>ig_session.json</code> — sessão Instagram",
-            parse_mode="HTML",
-        )
-        return
-
-    # Baixar arquivo
-    cred_dir = BASE_DIR / "credentials"
-    cred_dir.mkdir(exist_ok=True)
-    dest_path = cred_dir / target_name
-
-    try:
-        file = await context.bot.get_file(msg.document.file_id)
-        await file.download_to_drive(str(dest_path))
-    except Exception as e:
-        await msg.reply_text(f"❌ Erro ao salvar: {html_escape(str(e))}", parse_mode="HTML")
-        return
-
-    # Salvo — agora valida automaticamente conforme o tipo
-    base_msg = await msg.reply_text(
-        f"✅ <code>{target_name}</code> salvo em credentials/\n\n⏳ Validando...",
-        parse_mode="HTML",
-    )
-
-    # Validação por tipo de arquivo
-    if target_name == "token.json":
-        try:
-            from notebooklm_session import check_youtube
-            ok = await asyncio.to_thread(check_youtube, False)
-            if ok:
-                await _safe_edit(base_msg,
-                    f"✅ <code>token.json</code> salvo!\n\n"
-                    f"🟢 Token YouTube <b>OK</b>.")
-            else:
-                await _safe_edit(base_msg,
-                    f"⚠️ <code>token.json</code> salvo, mas token <b>NÃO validou</b>.\n\n"
-                    "Pode estar expirado sem refresh_token.")
-        except Exception as e:
-            await _safe_edit(base_msg,
-                f"✅ <code>token.json</code> salvo\n\n"
-                f"⚠️ Erro ao validar: {html_escape(str(e))}")
-        return
-
-    if target_name == "tiktok_cookies.json":
-        try:
-            from notebooklm_session import check_tiktok
-            ok = await asyncio.to_thread(check_tiktok, False)
-            if ok:
-                await _safe_edit(base_msg,
-                    f"✅ <code>tiktok_cookies.json</code> salvo!\n\n"
-                    f"🟢 Cookies TikTok presentes.")
-            else:
-                await _safe_edit(base_msg,
-                    f"⚠️ <code>tiktok_cookies.json</code> salvo, mas vazio/corrompido.")
-        except Exception as e:
-            await _safe_edit(base_msg,
-                f"✅ <code>tiktok_cookies.json</code> salvo\n\n"
-                f"⚠️ Erro ao validar: {html_escape(str(e))}")
-        return
-
-    # Demais arquivos: só confirma o salvamento
-    await _safe_edit(base_msg, f"✅ <code>{target_name}</code> salvo em credentials/")
 
 
 # ── main ──────────────────────────────────────────────────────────────────────
@@ -1077,8 +1087,6 @@ def main() -> None:
 
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler(["start", "menu"], cmd_start))
-    app.add_handler(CommandHandler("upload", cmd_upload))
-    app.add_handler(MessageHandler(filters.Document.ALL, on_document))
     app.add_handler(CallbackQueryHandler(on_callback))
 
     print(f"Bot iniciado. Aguardando comandos de chat_id={CHAT_ID}…")
