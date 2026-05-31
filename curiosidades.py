@@ -316,38 +316,59 @@ async def run_curiosidade(on_progress=None):
 
     if not YOUTUBE_UPLOAD:
         try:
-            path = await generate_short_from_text(upload=False, **common_args)
+            path, _ = await generate_short_from_text(upload=False, **common_args)
             print(f"\nVídeo local: {path}")
         except Exception as e:
             print(f"Erro ao gerar vídeo: {e}")
         return None
 
     try:
-        video_id = await generate_short_from_text(upload=True, **common_args)
+        video_id, tiktok_ok = await generate_short_from_text(upload=True, **common_args)
     except Exception as e:
         print(f"Erro no upload: {e}")
         from telegram_notifier import notify
         notify(f"❌ <b>Curiosidade:</b> erro no upload — {e}")
         return None
 
+    yt_ok = bool(video_id)
+
     from telegram_notifier import notify
-    if video_id:
-        print(f"\nCuriosidade publicada: https://youtu.be/{video_id}")
+
+    if yt_ok and tiktok_ok:
+        print(f"\nCuriosidade publicada: https://youtu.be/{video_id} + TikTok")
         notify(
             f"✅ <b>Curiosidade postada!</b>\n"
             f"<i>{curiosidade['tema']}</i>\n"
             f"{curiosidade['titulo']}\n"
-            f"Plataformas: {' + '.join(plataformas)}\n"
+            f"📺 YouTube + 🎵 TikTok\n"
             f"https://youtu.be/{video_id}"
         )
-    elif POST_TIKTOK and not POST_YOUTUBE:
-        # Só TikTok — sem video_id do YouTube, mas pode ter ido pro TikTok
-        print(f"\nCuriosidade postada (TikTok only)")
+    elif yt_ok:
+        msg_tk = "" if not POST_TIKTOK else "\n⚠️ TikTok falhou (ver log)"
+        print(f"\nCuriosidade publicada no YouTube: https://youtu.be/{video_id}{msg_tk}")
         notify(
-            f"✅ <b>Curiosidade postada no TikTok!</b>\n"
+            f"✅ <b>Curiosidade postada no YouTube!</b>{msg_tk}\n"
+            f"<i>{curiosidade['tema']}</i>\n"
+            f"{curiosidade['titulo']}\n"
+            f"https://youtu.be/{video_id}"
+        )
+    elif tiktok_ok:
+        msg_yt = "" if not POST_YOUTUBE else "\n⚠️ YouTube falhou (ver log)"
+        print(f"\nCuriosidade postada no TikTok{msg_yt}")
+        notify(
+            f"✅ <b>Curiosidade postada no TikTok!</b>{msg_yt}\n"
             f"<i>{curiosidade['tema']}</i>\n"
             f"{curiosidade['titulo']}"
         )
+    else:
+        plats_pedidas = " + ".join(plataformas) if plataformas else "(nenhuma)"
+        print(f"\n❌ Nenhuma plataforma aceitou. Pedidas: {plats_pedidas}")
+        notify(
+            f"❌ <b>Curiosidade:</b> nenhuma plataforma aceitou.\n"
+            f"Pedidas: {plats_pedidas}\n"
+            f"<i>{curiosidade['titulo']}</i>"
+        )
+
     return video_id
 
 

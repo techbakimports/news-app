@@ -241,7 +241,7 @@ async def run_tech_news(on_progress=None):
 
         if not YOUTUBE_UPLOAD:
             try:
-                path = await generate_short_from_text(
+                path, _ = await generate_short_from_text(
                     title=title, narration=narration,
                     category="Tecnologia", source=source,
                     upload=False, privacy=privacy,
@@ -254,7 +254,7 @@ async def run_tech_news(on_progress=None):
             continue
 
         try:
-            video_id = await generate_short_from_text(
+            video_id, _tk_ok = await generate_short_from_text(
                 title=title, narration=narration,
                 category="Tecnologia", source=source,
                 upload=True, privacy=privacy,

@@ -264,11 +264,13 @@ async def generate_short_from_text(
     instagram_enabled: bool = True,
     youtube_enabled: bool = True,
     tiktok_enabled: bool = True,
-) -> str | None:
+) -> tuple[str | None, bool]:
     """
     Gera um Short vertical 1080×1920 a partir de TEXTO PRONTO (sem chamar Gemini).
 
-    Útil quando o resumo já vem pronto de outra fonte (NotebookLM, etc).
+    Retorna (video_id_youtube_ou_None, tiktok_ok_bool).
+    Quando upload=False, retorna (caminho_local_str, False).
+
     Faz TTS + busca imagem Pexels + renderiza frame + upload YouTube/Instagram/TikTok.
 
     Args:
@@ -358,7 +360,7 @@ async def generate_short_from_text(
     print(f"  Vídeo salvo: {output_path} ({duration:.1f}s)")
 
     if not upload:
-        return output_path
+        return (output_path, False)
 
     # Upload — plataformas independentes
     from uploader import upload_video as yt_upload
@@ -378,6 +380,8 @@ async def generate_short_from_text(
     yt_tags = [h.lower() for h in hashtags] + [category.lower()]
 
     video_id = None
+    tiktok_ok = False
+
     # YouTube
     if youtube_enabled:
         try:
@@ -419,6 +423,7 @@ async def generate_short_from_text(
                     tk_hashtags = [h.lower() for h in hashtags]
                     if tk_upload(output_path, tk_desc, tk_hashtags):
                         print(f"    TikTok: OK")
+                        tiktok_ok = True
                     else:
                         print(f"    TikTok: falhou (ver erro acima)")
         except Exception as e:
@@ -432,7 +437,7 @@ async def generate_short_from_text(
     except Exception:
         pass
 
-    return video_id
+    return (video_id, tiktok_ok)
 
 
 async def generate_short(item: dict, upload: bool = True, privacy: str = "public") -> str | None:
