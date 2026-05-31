@@ -19,20 +19,24 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 IS_WINDOWS = os.name == "nt"
 
 # Windows Task Scheduler
-TASK_FOLDER   = "YoutuberAutomatico"
-TASK_NOTICIAS = f"{TASK_FOLDER}\\Noticias"
-TASK_AUDIO    = f"{TASK_FOLDER}\\AudioLongo"
+TASK_FOLDER       = "YoutuberAutomatico"
+TASK_NOTICIAS     = f"{TASK_FOLDER}\\Noticias"
+TASK_AUDIO        = f"{TASK_FOLDER}\\AudioLongo"
+TASK_CURIOSIDADES = f"{TASK_FOLDER}\\Curiosidades"
 
 # Linux cron — tags únicas para identificar linhas gerenciadas
-CRON_NOTICIAS = "YOUTUBER:noticias"
-CRON_AUDIO    = "YOUTUBER:audio"
-LOG_DIR       = os.path.join(BASE_DIR, "logs")
+CRON_NOTICIAS     = "YOUTUBER:noticias"
+CRON_AUDIO        = "YOUTUBER:audio"
+CRON_CURIOSIDADES = "YOUTUBER:curiosidades"
+LOG_DIR           = os.path.join(BASE_DIR, "logs")
 
 SCHEDULER_CFG = os.path.join(BASE_DIR, "scheduler.json")
 
+# Multi-horário: cada pipeline pode ter VÁRIOS horários no mesmo dia.
 _CFG_PADRAO = {
-    "noticias": {"ativo": False, "horario": "06:00", "privado": False},
-    "audio":    {"ativo": False, "horario": "08:00", "tipo": "rain", "horas": 8, "privado": False},
+    "noticias":     {"ativo": False, "horarios": ["06:00"], "privado": False},
+    "audio":        {"ativo": False, "horarios": ["08:00"], "tipo": "rain", "horas": 8, "privado": False},
+    "curiosidades": {"ativo": False, "horarios": ["10:00"], "privado": False},
 }
 
 SONS = {
@@ -55,6 +59,12 @@ def _ler_cfg():
                 cfg = json.load(f)
             for k, v in _CFG_PADRAO.items():
                 cfg.setdefault(k, dict(v))
+            # Backward compat: converte horario (str) → horarios (list)
+            for k, entry in cfg.items():
+                if "horario" in entry and "horarios" not in entry:
+                    entry["horarios"] = [entry.pop("horario")]
+                elif "horarios" not in entry:
+                    entry["horarios"] = _CFG_PADRAO.get(k, {}).get("horarios", ["06:00"])
             return cfg
         except Exception:
             pass
@@ -73,7 +83,8 @@ def _win_tarefa_existe(task_name):
     return r.returncode == 0
 
 
-def _win_criar_tarefa(task_name, comando, horario):
+def _win_criar_tarefa_unica(task_name, comando, horario):
+    """Cria UMA task no Task Scheduler (uso interno)."""
     subprocess.run(
         ["schtasks", "/Create", "/TN", task_name, "/TR", comando,
          "/SC", "DAILY", "/ST", horario, "/F"],
@@ -81,9 +92,38 @@ def _win_criar_tarefa(task_name, comando, horario):
     )
 
 
-def _win_remover_tarefa(task_name):
+def _win_remover_tarefa_unica(task_name):
     if _win_tarefa_existe(task_name):
         subprocess.run(["schtasks", "/Delete", "/TN", task_name, "/F"], capture_output=True)
+
+
+def _win_criar_tarefa(task_prefix, comando, horarios):
+    """Cria UMA task por horário, com sufixo no nome. Ex: Noticias_06_00, Noticias_12_00"""
+    _win_remover_tarefa(task_prefix)  # limpa as antigas primeiro
+    for horario in horarios:
+        sufixo = horario.replace(":", "_")
+        task_name = f"{task_prefix}_{sufixo}"
+        _win_criar_tarefa_unica(task_name, comando, horario)
+
+
+def _win_remover_tarefa(task_prefix):
+    """Remove TODAS as tasks que começam com task_prefix_."""
+    # Lista todas no folder
+    r = subprocess.run(
+        ["schtasks", "/Query", "/FO", "CSV", "/NH"],
+        capture_output=True, text=True,
+    )
+    if r.returncode != 0:
+        return
+    folder_prefix = "\\" + task_prefix  # ex: \YoutuberAutomatico\Noticias
+    for line in r.stdout.splitlines():
+        # CSV: "TaskName","NextRunTime","Status"
+        parts = [p.strip('"') for p in line.split('","')]
+        if not parts:
+            continue
+        tn = parts[0].lstrip('"')
+        if tn.startswith(folder_prefix):
+            _win_remover_tarefa_unica(tn)
 
 
 # -- Linux cron ----------------------------------------------------------------
@@ -101,15 +141,17 @@ def _lin_tarefa_existe(tag):
     return f"# {tag}" in _lin_cron_ler()
 
 
-def _lin_criar_tarefa(tag, comando, horario):
+def _lin_criar_tarefa(tag, comando, horarios):
+    """Cria múltiplas linhas no crontab — uma por horário — todas com o mesmo tag."""
     os.makedirs(LOG_DIR, exist_ok=True)
     nome_log = tag.split(":")[-1]
     log_path = os.path.join(LOG_DIR, f"{nome_log}.log")
-    hh, mm = horario.split(":")
-    nova = f"{mm} {hh} * * * {comando} >> {log_path} 2>&1  # {tag}\n"
     crontab = _lin_cron_ler()
+    # Remove TODAS as linhas existentes desse tag antes de recriar
     linhas = [l for l in crontab.splitlines(keepends=True) if f"# {tag}" not in l]
-    linhas.append(nova)
+    for horario in horarios:
+        hh, mm = horario.split(":")
+        linhas.append(f"{mm} {hh} * * * {comando} >> {log_path} 2>&1  # {tag}\n")
     _lin_cron_escrever("".join(linhas))
 
 
@@ -121,34 +163,82 @@ def _lin_remover_tarefa(tag):
 
 # -- wrappers cross-platform ---------------------------------------------------
 
+_TASKS = {
+    "noticias":     TASK_NOTICIAS,
+    "audio":        TASK_AUDIO,
+    "curiosidades": TASK_CURIOSIDADES,
+}
+_TAGS = {
+    "noticias":     CRON_NOTICIAS,
+    "audio":        CRON_AUDIO,
+    "curiosidades": CRON_CURIOSIDADES,
+}
+
+
+def _tarefa_existe(tipo):
+    if IS_WINDOWS:
+        # No Windows precisa verificar se existe ALGUMA task com o prefixo
+        prefix = _TASKS[tipo]
+        r = subprocess.run(
+            ["schtasks", "/Query", "/FO", "CSV", "/NH"],
+            capture_output=True, text=True,
+        )
+        if r.returncode != 0:
+            return False
+        folder_prefix = "\\" + prefix
+        return any(folder_prefix in line for line in r.stdout.splitlines())
+    return _lin_tarefa_existe(_TAGS[tipo])
+
+
 def _tarefa_existe_n():
-    return _win_tarefa_existe(TASK_NOTICIAS) if IS_WINDOWS else _lin_tarefa_existe(CRON_NOTICIAS)
+    return _tarefa_existe("noticias")
 
 
 def _tarefa_existe_a():
-    return _win_tarefa_existe(TASK_AUDIO) if IS_WINDOWS else _lin_tarefa_existe(CRON_AUDIO)
+    return _tarefa_existe("audio")
 
 
-def _criar_agendamento(tipo, comando, horario):
+def _tarefa_existe_c():
+    return _tarefa_existe("curiosidades")
+
+
+def _criar_agendamento(tipo, comando, horarios):
+    """horarios pode ser uma string única (compat) ou uma lista."""
+    if isinstance(horarios, str):
+        horarios = [horarios]
     if IS_WINDOWS:
-        task = TASK_NOTICIAS if tipo == "noticias" else TASK_AUDIO
-        _win_criar_tarefa(task, comando, horario)
+        _win_criar_tarefa(_TASKS[tipo], comando, horarios)
     else:
-        tag = CRON_NOTICIAS if tipo == "noticias" else CRON_AUDIO
-        _lin_criar_tarefa(tag, comando, horario)
+        _lin_criar_tarefa(_TAGS[tipo], comando, horarios)
 
 
 def _remover_agendamento(tipo):
     if IS_WINDOWS:
-        _win_remover_tarefa(TASK_NOTICIAS if tipo == "noticias" else TASK_AUDIO)
+        _win_remover_tarefa(_TASKS[tipo])
     else:
-        _lin_remover_tarefa(CRON_NOTICIAS if tipo == "noticias" else CRON_AUDIO)
+        _lin_remover_tarefa(_TAGS[tipo])
 
 
 # -- validação e comandos ------------------------------------------------------
 
 def _validar_horario(h):
     return bool(re.match(r"^\d{2}:\d{2}$", h))
+
+
+def _parse_horarios(texto: str) -> list[str] | None:
+    """Aceita 'HH:MM' ou 'HH:MM,HH:MM,...'. Retorna lista ou None se invalido."""
+    horarios = [h.strip() for h in texto.replace(";", ",").split(",") if h.strip()]
+    if not horarios:
+        return None
+    for h in horarios:
+        if not _validar_horario(h):
+            return None
+    # Remove duplicatas mantendo ordem
+    visto = []
+    for h in horarios:
+        if h not in visto:
+            visto.append(h)
+    return visto
 
 
 def _cmd_noticias(privado):
@@ -165,24 +255,61 @@ def _cmd_audio(tipo, horas, privado):
     return cmd + " --privado" if privado else cmd
 
 
+def _cmd_curiosidades(privado):
+    script = os.path.join(BASE_DIR, "curiosidades.py")
+    cd = f"cd {BASE_DIR} &&" if not IS_WINDOWS else ""
+    cmd = f'{cd} "{PYTHON}" "{script}"'
+    return cmd + " --privado" if privado else cmd
+
+
 # -- configuração interativa ---------------------------------------------------
 
 def _configurar_noticias(cfg):
     cabecalho("-- AGENDAR NOTÍCIAS --")
     n = cfg["noticias"]
+    atuais = ",".join(n.get("horarios", ["06:00"]))
 
-    horario = input(f"  Horário diário (HH:MM) [padrão {n['horario']}]: ").strip() or n["horario"]
-    if not _validar_horario(horario):
-        input("  Formato inválido. Use HH:MM. [Enter]")
+    print("  Aceita um ou vários horários separados por vírgula.")
+    print("  Ex: 06:00,12:00,18:00")
+    txt = input(f"  Horários [padrão {atuais}]: ").strip() or atuais
+    horarios = _parse_horarios(txt)
+    if not horarios:
+        input("  Formato inválido. Use HH:MM,HH:MM,... [Enter]")
         return
 
     privado = perguntar_privacidade()
 
     try:
-        _criar_agendamento("noticias", _cmd_noticias(privado), horario)
-        cfg["noticias"] = {"ativo": True, "horario": horario, "privado": privado}
+        _criar_agendamento("noticias", _cmd_noticias(privado), horarios)
+        cfg["noticias"] = {"ativo": True, "horarios": horarios, "privado": privado}
         _salvar_cfg(cfg)
-        print(f"\n  Notícias agendadas para {horario} todos os dias.")
+        print(f"\n  Notícias agendadas para: {', '.join(horarios)} todos os dias.")
+    except subprocess.CalledProcessError as e:
+        stderr = e.stderr.decode(errors="replace") if isinstance(e.stderr, bytes) else (e.stderr or "")
+        print(f"\n  Erro ao criar agendamento: {stderr or e}")
+    aguardar()
+
+
+def _configurar_curiosidades(cfg):
+    cabecalho("-- AGENDAR CURIOSIDADES --")
+    c = cfg["curiosidades"]
+    atuais = ",".join(c.get("horarios", ["10:00"]))
+
+    print("  Aceita um ou vários horários separados por vírgula.")
+    print("  Ex: 10:00,14:00,20:00")
+    txt = input(f"  Horários [padrão {atuais}]: ").strip() or atuais
+    horarios = _parse_horarios(txt)
+    if not horarios:
+        input("  Formato inválido. Use HH:MM,HH:MM,... [Enter]")
+        return
+
+    privado = perguntar_privacidade()
+
+    try:
+        _criar_agendamento("curiosidades", _cmd_curiosidades(privado), horarios)
+        cfg["curiosidades"] = {"ativo": True, "horarios": horarios, "privado": privado}
+        _salvar_cfg(cfg)
+        print(f"\n  Curiosidades agendadas para: {', '.join(horarios)} todos os dias.")
     except subprocess.CalledProcessError as e:
         stderr = e.stderr.decode(errors="replace") if isinstance(e.stderr, bytes) else (e.stderr or "")
         print(f"\n  Erro ao criar agendamento: {stderr or e}")
@@ -209,60 +336,66 @@ def _configurar_audio(cfg):
         input("  Valor inválido. [Enter]")
         return
 
-    horario = input(f"  Horário diário (HH:MM) [padrão {a.get('horario', '08:00')}]: ").strip() or a.get("horario", "08:00")
-    if not _validar_horario(horario):
-        input("  Formato inválido. Use HH:MM. [Enter]")
+    atuais = ",".join(a.get("horarios", ["08:00"]))
+    print("  Aceita um ou vários horários separados por vírgula.")
+    txt = input(f"  Horários [padrão {atuais}]: ").strip() or atuais
+    horarios = _parse_horarios(txt)
+    if not horarios:
+        input("  Formato inválido. Use HH:MM,HH:MM,... [Enter]")
         return
 
     privado = perguntar_privacidade()
 
     try:
-        _criar_agendamento("audio", _cmd_audio(tipo, horas, privado), horario)
-        cfg["audio"] = {"ativo": True, "horario": horario, "tipo": tipo, "horas": horas, "privado": privado}
+        _criar_agendamento("audio", _cmd_audio(tipo, horas, privado), horarios)
+        cfg["audio"] = {"ativo": True, "horarios": horarios, "tipo": tipo, "horas": horas, "privado": privado}
         _salvar_cfg(cfg)
         label = next(lb for t, lb in SONS.values() if t == tipo)
-        print(f"\n  {label} ({horas}h) agendado para {horario} todos os dias.")
+        print(f"\n  {label} ({horas}h) agendado para: {', '.join(horarios)} todos os dias.")
     except subprocess.CalledProcessError as e:
         stderr = e.stderr.decode(errors="replace") if isinstance(e.stderr, bytes) else (e.stderr or "")
         print(f"\n  Erro ao criar agendamento: {stderr or e}")
     aguardar()
 
 
+def _status_linha(entry, ativo_real, label_extra=""):
+    if entry["ativo"] and ativo_real:
+        priv = "privado" if entry.get("privado") else "público"
+        hs = ", ".join(entry.get("horarios", []))
+        return f"ATIVO — {hs} ({priv}){label_extra}"
+    if entry["ativo"] and not ativo_real:
+        return "DESCONFIGURADO (use opção pra recriar)"
+    return "inativo"
+
+
 def menu_agendamento():
     while True:
         cfg = _ler_cfg()
-        n, a = cfg["noticias"], cfg["audio"]
+        n, a, c = cfg["noticias"], cfg["audio"], cfg["curiosidades"]
         n_real = _tarefa_existe_n()
         a_real = _tarefa_existe_a()
+        c_real = _tarefa_existe_c()
 
         cabecalho("-- AGENDAMENTO --")
         plataforma = "Windows Task Scheduler" if IS_WINDOWS else "cron Linux"
         print(f"  Plataforma: {plataforma}")
         print()
 
-        if n["ativo"] and n_real:
-            priv_n = "privado" if n["privado"] else "público"
-            status_n = f"ATIVO  — {n['horario']} diário ({priv_n})"
-        elif n["ativo"] and not n_real:
-            status_n = "DESCONFIGURADO (use opção 1 para recriar)"
-        else:
-            status_n = "inativo"
+        status_n = _status_linha(n, n_real)
+        audio_extra = f" | {a.get('tipo', '?')} {a.get('horas', '?')}h" if n["ativo"] else ""
+        status_a = _status_linha(a, a_real, audio_extra)
+        status_c = _status_linha(c, c_real)
 
-        if a["ativo"] and a_real:
-            priv_a = "privado" if a["privado"] else "público"
-            status_a = f"ATIVO  — {a['horario']} diário  |  {a['tipo']} {a['horas']}h ({priv_a})"
-        elif a["ativo"] and not a_real:
-            status_a = "DESCONFIGURADO (use opção 2 para recriar)"
-        else:
-            status_a = "inativo"
-
-        print(f"  Notícias:    {status_n}")
-        print(f"  Áudio Longo: {status_a}")
+        print(f"  Notícias:      {status_n}")
+        print(f"  Áudio Longo:   {status_a}")
+        print(f"  Curiosidades:  {status_c}")
         print()
-        print("  1.  Configurar notícias diárias")
-        print("  2.  Configurar áudio longo diário")
-        print("  3.  Desativar notícias")
-        print("  4.  Desativar áudio longo")
+        print("  1.  Configurar notícias")
+        print("  2.  Configurar áudio longo")
+        print("  3.  Configurar curiosidades")
+        print("  4.  Desativar notícias")
+        print("  5.  Desativar áudio longo")
+        print("  6.  Desativar curiosidades")
         print()
         print("  0.  Voltar")
         print()
@@ -273,16 +406,24 @@ def menu_agendamento():
         elif op == "2":
             _configurar_audio(cfg)
         elif op == "3":
+            _configurar_curiosidades(cfg)
+        elif op == "4":
             _remover_agendamento("noticias")
             cfg["noticias"]["ativo"] = False
             _salvar_cfg(cfg)
             print("\n  Agendamento de notícias removido.")
             aguardar()
-        elif op == "4":
+        elif op == "5":
             _remover_agendamento("audio")
             cfg["audio"]["ativo"] = False
             _salvar_cfg(cfg)
             print("\n  Agendamento de áudio longo removido.")
+            aguardar()
+        elif op == "6":
+            _remover_agendamento("curiosidades")
+            cfg["curiosidades"]["ativo"] = False
+            _salvar_cfg(cfg)
+            print("\n  Agendamento de curiosidades removido.")
             aguardar()
         elif op == "0":
             return
