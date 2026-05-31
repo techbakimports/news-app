@@ -112,6 +112,16 @@ _TEMA_POOLS = [
     "esportes (recordes inacreditáveis, histórias bizarras)",
     "cinema e literatura (bastidores, curiosidades de obras famosas)",
     "economia e finanças (eventos históricos, paradoxos econômicos)",
+    "medicina (doenças famosas, vacinas, descobertas médicas, cirurgias históricas)",
+    "mistérios (desaparecimentos, lugares enigmáticos, Bermudas, Stonehenge, sociedades secretas)",
+    "arquitetura (construções impossíveis, engenharia antiga, monumentos)",
+    "paleontologia (dinossauros, fósseis, extinções em massa)",
+    "mitologia mundial (mitos pouco conhecidos de diferentes culturas)",
+    "religiões e crenças (práticas curiosas, origens, rituais incomuns)",
+    "microbiologia (vírus, bactérias, fungos, microrganismos surpreendentes)",
+    "fenômenos naturais (auroras, terremotos, vulcões, tempestades raras)",
+    "jogos e brinquedos (origens de jogos famosos, recordes, brinquedos antigos)",
+    "internet e cultura digital (memes, fenômenos virais, história da web)",
 ]
 
 
@@ -143,11 +153,41 @@ async def _gerar_curiosidade() -> dict | None:
     Cadeia: Groq (JSON mode, primário) → Gemini (fallback) → None.
     Retorna dict {tema, titulo, narracao} ou None se falhar.
     """
-    # Sorteia 3 temas pra LLM escolher (ajuda a variar)
-    temas_sorteados = random.sample(_TEMA_POOLS, k=3)
-
-    # Recupera histórico pra evitar repetição
+    # Carrega histórico ANTES de sortear, pra filtrar temas recentes
     history = _load_history()
+
+    # Filtra _TEMA_POOLS removendo os usados nas últimas N execuções.
+    # Garante variedade — evita 3 astronomias seguidas.
+    TEMAS_RECENTES_EVITAR = 5  # últimos N temas são bloqueados do sorteio
+    temas_usados = [h.get("tema", "").lower() for h in history[-TEMAS_RECENTES_EVITAR:]]
+
+    def _foi_usado_recente(tema_pool: str) -> bool:
+        # Considera que 'ciência (...)' do pool casa com 'ciência' do histórico
+        # (LLM pode salvar versão curta) e vice-versa
+        pool_lower = tema_pool.lower()
+        for usado in temas_usados:
+            if not usado:
+                continue
+            # Match se qualquer um contém o outro (substring)
+            if usado in pool_lower or pool_lower in usado:
+                return True
+            # Ou se a primeira palavra significativa do pool aparece no usado
+            pool_key = pool_lower.split("(")[0].strip().split()[0]
+            usado_key = usado.split("(")[0].strip().split()[0] if usado.split() else ""
+            if pool_key and usado_key and pool_key == usado_key:
+                return True
+        return False
+
+    pool_disponivel = [t for t in _TEMA_POOLS if not _foi_usado_recente(t)]
+    if len(pool_disponivel) < 3:
+        # Fallback: se filtramos demais (acervo pequeno), libera tudo
+        pool_disponivel = _TEMA_POOLS
+
+    # Sorteia 3 temas do pool filtrado pra LLM escolher
+    temas_sorteados = random.sample(pool_disponivel, k=3)
+    print(f"  Temas excluídos (últimos {TEMAS_RECENTES_EVITAR}): {temas_usados}")
+
+    # Lista de TÍTULOS recentes pra evitar repetição de conteúdo
     historicos_recentes = [h.get("titulo", "") for h in history[-15:] if h.get("titulo")]
     historico_texto = ""
     if historicos_recentes:
