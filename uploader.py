@@ -150,21 +150,55 @@ def upload_video(video_path, title, description, tags=None, publish_at_hour=6, p
             retry_delay = 5  # reset após chunk bem-sucedido
         except (OSError, ConnectionError, TimeoutError, socket.timeout, HttpError) as e:
             if max_retries <= 0:
+                _log_yt_error(e, "upload de chunk", esgotou_retries=True)
                 raise
             is_retryable = isinstance(e, (OSError, ConnectionError, TimeoutError, socket.timeout)) or (
                 isinstance(e, HttpError) and e.resp.status in (429, 500, 502, 503, 504)
             )
             if not is_retryable:
+                _log_yt_error(e, "upload de chunk")
                 raise
             max_retries -= 1
-            print(f"\n  Falha de conexão ({e}). Tentando novamente em {retry_delay}s... ({max_retries} tentativas restantes)")
+            print(f"\n  ⚠️ Falha de conexão ({type(e).__name__}: {e}). Retry em {retry_delay}s... ({max_retries} restantes)")
             time.sleep(retry_delay)
             retry_delay = min(retry_delay * 2, 120)
 
     video_id = response["id"]
-    print(f"  Upload: 100% — concluído!")
+    print(f"  Upload: 100% — ✅ concluído!")
     print(f"  URL: https://youtu.be/{video_id}")
     return video_id
+
+
+def _log_yt_error(err, contexto: str, esgotou_retries: bool = False):
+    """Imprime diagnóstico amigável de erro do YouTube."""
+    print(f"\n  ❌ YouTube falhou em: {contexto}")
+    print(f"     Tipo: {type(err).__name__}")
+    msg = str(err).lower()
+
+    if esgotou_retries:
+        print(f"     Esgotou todas as tentativas de retry")
+
+    if "quotaexceeded" in msg or "quota" in msg:
+        print("     CAUSA: Cota diária do YouTube esgotada (limite ~6 uploads/dia)")
+        print("     FIX:   Aguardar reset (meia-noite PT) ou pedir aumento de quota")
+    elif "invaliddescription" in msg or "invalid video description" in msg:
+        print("     CAUSA: Descrição contém caracteres rejeitados (< > ou tags HTML)")
+        print("     FIX:   _sanitize_yt() deveria ter limpado — verifique build_description")
+    elif "invalidtitle" in msg or "invalid video title" in msg:
+        print("     CAUSA: Título excede 100 chars ou tem caracteres inválidos")
+    elif "invalid_grant" in msg or "token has been revoked" in msg or "expired" in msg:
+        print("     CAUSA: Token OAuth revogado/expirado")
+        print("     FIX:   Gerar novo token.json no PC e copiar pra VPS (scp)")
+    elif "forbidden" in msg or "permission" in msg:
+        print("     CAUSA: Permissão negada — verifique scopes do OAuth ou status do canal")
+    elif "uploadlimit" in msg:
+        print("     CAUSA: Limite de uploads atingido para esta hora")
+    elif "videoiduploadtolarge" in msg or "request entity too large" in msg:
+        print("     CAUSA: Vídeo excedeu limite de tamanho (~128 GB)")
+    elif "5" in msg[:3]:  # 5xx errors
+        print("     CAUSA: YouTube com problema interno (5xx) — geralmente passa em minutos")
+    else:
+        print(f"     Mensagem: {err}")
 
 
 def upload_thumbnail(video_id: str, thumb_path: str) -> bool:

@@ -1,3 +1,9 @@
+# ────────────────────────────────────────────────────────────────────
+# Dependências Python (pip)
+# ────────────────────────────────────────────────────────────────────
+# Pra deps de SISTEMA (Chrome, ffmpeg) ver: install_system_deps.sh
+# ────────────────────────────────────────────────────────────────────
+
 feedparser
 google-genai
 google-api-python-client
@@ -12,7 +18,12 @@ Pillow
 moviepy<2.0
 numpy
 scipy
-notebooklm-py
 groq
 instagrapi
+
+# TikTok (precisa do Google Chrome instalado no sistema — ver install_system_deps.sh)
 tiktok-uploader
+
+# NotebookLM (legado — só usado em notebooklm_session.check() que não é chamado hoje,
+# mas import ainda existe; mantido pra não quebrar)
+notebooklm-py

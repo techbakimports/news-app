@@ -821,6 +821,14 @@ def generate_shorts_per_category(
     from playlists import add_to_playlist
 
     uploaded_ids: list[str] = []
+    # Rastreio detalhado por plataforma pra resumo final
+    stats = {
+        "youtube_ok": 0, "youtube_fail": 0,
+        "tiktok_ok": 0, "tiktok_fail": 0,
+        "instagram_ok": 0, "instagram_fail": 0,
+        "ffmpeg_fail": 0,
+    }
+    falhas_detalhadas: list[str] = []  # ["cat: motivo", ...]
 
     for n, (idx, item) in enumerate(selected, 1):
         category = item["category"]
@@ -837,6 +845,8 @@ def generate_shorts_per_category(
 
         print(f"\n  [{n}/{len(selected)}] {category}: cortando {dur_s:.1f}s @ {start_s:.1f}s")
         if not _cut_vertical_segment(video_path, start_s, dur_s, output_path):
+            stats["ffmpeg_fail"] += 1
+            falhas_detalhadas.append(f"{category}: ffmpeg falhou ao cortar segmento")
             continue
 
         size_mb = os.path.getsize(output_path) / 1024 / 1024
@@ -859,13 +869,16 @@ def generate_shorts_per_category(
         try:
             video_id = upload_video(output_path, yt_title, yt_desc, yt_tags, privacy=privacy)
             uploaded_ids.append(video_id)
-            print(f"    YouTube: https://youtu.be/{video_id}")
+            stats["youtube_ok"] += 1
+            print(f"    YouTube: ✅ https://youtu.be/{video_id}")
             try:
                 add_to_playlist(video_id, "noticias")
             except Exception as e:
-                print(f"    add_to_playlist falhou: {e}")
+                print(f"    ⚠️ add_to_playlist falhou: {e}")
         except Exception as e:
-            print(f"    Erro YouTube: {e}")
+            stats["youtube_fail"] += 1
+            falhas_detalhadas.append(f"{category}/YouTube: {type(e).__name__}: {str(e)[:120]}")
+            print(f"    ❌ YouTube falhou: {type(e).__name__}: {e}")
 
         # Instagram Reel — independente
         try:
@@ -878,9 +891,12 @@ def generate_shorts_per_category(
                         f"#noticias #brasil #newsapp #{category.replace(' ', '').lower()}"
                     )
                     upload_reel(output_path, ig_caption)
-                    print(f"    Instagram Reel: OK")
+                    stats["instagram_ok"] += 1
+                    print(f"    Instagram Reel: ✅ OK")
         except Exception as e:
-            print(f"    Instagram Reel falhou: {e}")
+            stats["instagram_fail"] += 1
+            falhas_detalhadas.append(f"{category}/Instagram: {type(e).__name__}: {str(e)[:120]}")
+            print(f"    ❌ Instagram Reel falhou: {type(e).__name__}: {e}")
 
         # TikTok — independente
         try:
@@ -891,11 +907,14 @@ def generate_shorts_per_category(
                     tk_desc = f"{category}\n\n{title}"
                     tk_hashtags = ["noticias", "brasil", "newsapp", category.lower().replace(" ", "")]
                     if tiktok_upload(output_path, tk_desc, tk_hashtags):
-                        print(f"    TikTok: OK")
+                        stats["tiktok_ok"] += 1
                     else:
-                        print(f"    TikTok: falhou (ver erro acima)")
+                        stats["tiktok_fail"] += 1
+                        falhas_detalhadas.append(f"{category}/TikTok: ver log detalhado acima")
         except Exception as e:
-            print(f"    TikTok falhou: {e}")
+            stats["tiktok_fail"] += 1
+            falhas_detalhadas.append(f"{category}/TikTok: {type(e).__name__}: {str(e)[:120]}")
+            print(f"    ❌ TikTok falhou (exception): {type(e).__name__}: {e}")
 
         # Limpa arquivo local do Short
         try:
@@ -903,7 +922,21 @@ def generate_shorts_per_category(
         except Exception:
             pass
 
-    print(f"\n[Shorts/categoria] Concluído: {len(uploaded_ids)}/{len(selected)} upload(s) OK")
+    # Resumo final detalhado
+    print(f"\n{'='*60}")
+    print(f"[Shorts/categoria] RESUMO:")
+    print(f"  • Tentados:    {len(selected)} Shorts")
+    print(f"  • YouTube:     ✅ {stats['youtube_ok']} ok / ❌ {stats['youtube_fail']} falhas")
+    print(f"  • TikTok:      ✅ {stats['tiktok_ok']} ok / ❌ {stats['tiktok_fail']} falhas")
+    if stats["instagram_ok"] + stats["instagram_fail"] > 0:
+        print(f"  • Instagram:   ✅ {stats['instagram_ok']} ok / ❌ {stats['instagram_fail']} falhas")
+    if stats["ffmpeg_fail"]:
+        print(f"  • ffmpeg:      ❌ {stats['ffmpeg_fail']} falhas no corte")
+    if falhas_detalhadas:
+        print(f"\n  FALHAS DETALHADAS:")
+        for f in falhas_detalhadas:
+            print(f"    • {f}")
+    print(f"{'='*60}")
     return uploaded_ids
 
 
