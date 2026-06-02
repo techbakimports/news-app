@@ -48,7 +48,11 @@ def _get_credentials():
                 raise RuntimeError(
                     "Token YouTube expirado/revogado. Reautenticação interativa "
                     "não disponível (sem terminal).\n"
-                    "Envie credentials/token.json atualizado pelo bot Telegram."
+                    "Pra corrigir:\n"
+                    "1. No PC com browser, apague credentials/token.json\n"
+                    "2. Rode: python -c \"from uploader import _get_credentials; _get_credentials()\"\n"
+                    "3. Faça login no Google quando o browser abrir\n"
+                    "4. Copie o novo token.json pra VPS: scp credentials/token.json rocky@<vps>:~/news-app/credentials/"
                 )
             if not os.path.exists(SECRETS_FILE):
                 raise FileNotFoundError(
