@@ -421,7 +421,9 @@ async def generate_short_from_text(
                 if TIKTOK_ENABLED:
                     tk_desc = f"{title}\n\n{summary}\n\nFonte: {source}"
                     tk_hashtags = [h.lower() for h in hashtags]
-                    if tk_upload(output_path, tk_desc, tk_hashtags):
+                    # asyncio.to_thread porque tiktok-uploader usa Playwright Sync
+                    # internamente — não pode rodar dentro de asyncio loop ativo
+                    if await asyncio.to_thread(tk_upload, output_path, tk_desc, tk_hashtags):
                         print(f"    TikTok: OK")
                         tiktok_ok = True
                     else:
@@ -557,7 +559,8 @@ async def generate_short(item: dict, upload: bool = True, privacy: str = "public
                 if TIKTOK_ENABLED:
                     tk_hashtags = ["noticias", "brasil", "newsapp", category.lower().replace(" ", "")]
                     tk_desc = f"{title}\n\n{summary}\n\nFonte: {source}"
-                    tiktok_upload(output_path, tk_desc, tk_hashtags)
+                    # asyncio.to_thread — Playwright Sync NÃO funciona dentro do asyncio loop
+                    await asyncio.to_thread(tiktok_upload, output_path, tk_desc, tk_hashtags)
 
             try:
                 os.remove(output_path)
