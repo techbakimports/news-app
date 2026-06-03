@@ -580,6 +580,41 @@ async def _run_tech_digest(chat_id: int, bot, msg) -> None:
 
 # ── handlers ──────────────────────────────────────────────────────────────────
 
+async def _on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Captura excecoes nao tratadas — evita que o bot trave sem feedback."""
+    err = context.error
+    err_type = type(err).__name__
+    print(f"\n⚠️ Erro nao tratado no bot: {err_type}: {err}")
+
+    # Tenta avisar o user na conversa
+    try:
+        chat_id = None
+        if isinstance(update, Update):
+            if update.callback_query and update.callback_query.message:
+                chat_id = update.callback_query.message.chat_id
+            elif update.message:
+                chat_id = update.message.chat_id
+        if chat_id and str(chat_id) == str(CHAT_ID):
+            sugestao = ""
+            if "KeyError" in err_type:
+                sugestao = (
+                    "\n\n<i>Provavelmente bot rodando com codigo antigo "
+                    "em memoria. Pra corrigir:</i>\n"
+                    "<code>cd ~/news-app && git pull\n"
+                    "kill $(pgrep -f telegram_bot.py)\n"
+                    "nohup .venv/bin/python telegram_bot.py > logs/bot.log 2>&1 &</code>"
+                )
+            await context.bot.send_message(
+                chat_id,
+                f"⚠️ <b>Erro interno do bot</b>\n\n"
+                f"<code>{html_escape(err_type)}: {html_escape(str(err))[:300]}</code>"
+                f"{sugestao}",
+                parse_mode="HTML",
+            )
+    except Exception as e:
+        print(f"   (falhou ao avisar user: {e})")
+
+
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.effective_chat.id != CHAT_ID:
         return
@@ -762,7 +797,8 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     # ── agenda: horários de notícias (entrada) ────────────────────────────────
     if action == "ag_n_hora":
         cfg = _ler_cfg()
-        atual = cfg["noticias"].get("horarios", []) if cfg["noticias"].get("ativo") else []
+        entry = cfg.get("noticias", {})
+        atual = entry.get("horarios", []) if entry.get("ativo") else []
         horarios_str = ",".join(atual)
         await q.edit_message_text(
             _ag_titulo("Notícias", atual),
@@ -798,7 +834,8 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     # ── agenda: horários de curiosidades (entrada) ────────────────────────────
     if action == "ag_c_hora":
         cfg = _ler_cfg()
-        atual = cfg["curiosidades"].get("horarios", []) if cfg["curiosidades"].get("ativo") else []
+        entry = cfg.get("curiosidades", {})
+        atual = entry.get("horarios", []) if entry.get("ativo") else []
         horarios_str = ",".join(atual)
         await q.edit_message_text(
             _ag_titulo("Curiosidades", atual),
@@ -1177,6 +1214,7 @@ def main() -> None:
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler(["start", "menu"], cmd_start))
     app.add_handler(CallbackQueryHandler(on_callback))
+    app.add_error_handler(_on_error)
 
     print(f"Bot iniciado. Aguardando comandos de chat_id={CHAT_ID}…")
     app.run_polling(allowed_updates=["message", "callback_query"])
