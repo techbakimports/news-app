@@ -156,6 +156,63 @@ def summarize_news_batch(items, _retry=True):
     return [None] * n
 
 
+def summarize_news_for_short(category: str, title: str, content: str) -> str | None:
+    """
+    Gera narração longa (~350-400 palavras, ~3 min) pra Short de notícia.
+    Cadeia: Groq (primário) → Gemini (fallback) → None.
+
+    Diferente de summarize_news_batch (que gera resumos curtos de ~120 palavras
+    pra vídeo longo): aqui geramos texto denso pra cada categoria virar 1 Short.
+    """
+    prompt = (
+        "Você é um jornalista narrando notícia em formato Shorts (TikTok/YouTube).\n"
+        f"Categoria: {category}\n"
+        f"Título: {title}\n"
+        f"Conteúdo bruto da notícia (use como base):\n{content[:3000]}\n\n"
+        "REGRAS OBRIGATÓRIAS:\n"
+        "- Comece com uma frase de IMPACTO (gancho da notícia — fato mais surpreendente)\n"
+        "- Texto entre 350 e 400 palavras (~150-160s de fala — próximo ao limite de 3 min)\n"
+        "- Cobertura COMPLETA: o que aconteceu, quem, quando, onde, por quê, e qual o impacto/desdobramento\n"
+        "- NÃO deixe escapar nenhum aspecto importante — é melhor explicar bem 1 notícia "
+        "do que tocar superficialmente em vários pontos\n"
+        "- NÃO use markdown, asteriscos, hashtags, símbolos ou listas\n"
+        "- Português do Brasil, tom natural de podcast/Shorts (não engessado)\n"
+        "- Termine com uma reflexão sobre o impacto da notícia ou desdobramento esperado\n"
+        "- NÃO mencione 'agora em [categoria]' ou similar — vá direto ao assunto\n\n"
+        "Resposta (apenas o texto narrado, sem prefixos):"
+    )
+
+    # 1) Groq primário
+    if groq_key:
+        try:
+            from groq import Groq
+            client = Groq(api_key=groq_key)
+            resp = client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.7,
+            )
+            text = resp.choices[0].message.content.strip()
+            print(f"  [Groq] Short de notícia gerado ({len(text.split())} palavras)")
+            return text
+        except Exception as e:
+            print(f"  Groq falhou: {e}. Tentando Gemini...")
+
+    # 2) Gemini fallback
+    if gemini_key:
+        try:
+            client = _get_gemini_client()
+            response = client.models.generate_content(model="gemini-2.0-flash", contents=prompt)
+            text = response.text.strip()
+            print(f"  [Gemini fallback] Short de notícia gerado ({len(text.split())} palavras)")
+            return text
+        except Exception as e:
+            print(f"  Gemini também falhou: {e}")
+
+    print("  ❌ Nenhum LLM disponível pra gerar Short de notícia.")
+    return None
+
+
 if __name__ == "__main__":
     test_title = "Cientistas descobrem nova espécie de orquídea na Amazônia"
     test_content = "Uma expedição de botânicos brasileiros e estrangeiros identificou uma nova espécie de orquídea no coração da floresta amazônica. A planta apresenta cores vibrantes e um formato único que atraiu a atenção dos pesquisadores durante uma trilha de mapeamento."

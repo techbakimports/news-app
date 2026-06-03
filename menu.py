@@ -241,11 +241,18 @@ def _parse_horarios(texto: str) -> list[str] | None:
     return visto
 
 
-def _cmd_noticias(privado):
+def _cmd_noticias(privado, plataforma="ambos"):
+    """plataforma: 'ambos' | 'youtube' | 'tiktok'"""
     script = os.path.join(BASE_DIR, "main.py")
     cd = f"cd {BASE_DIR} &&" if not IS_WINDOWS else ""
     cmd = f'{cd} "{PYTHON}" "{script}"'
-    return cmd + " --privado" if privado else cmd
+    if plataforma == "youtube":
+        cmd += " --apenas-youtube"
+    elif plataforma == "tiktok":
+        cmd += " --apenas-tiktok"
+    if privado:
+        cmd += " --privado"
+    return cmd
 
 
 def _cmd_audio(tipo, horas, privado):
@@ -518,25 +525,36 @@ def rodar(cmd, descricao, pipeline=None, upload=True):
 def menu_noticias():
     while True:
         cabecalho("-- NOTÍCIAS --")
-        print("  Pipeline completo gera:")
-        print("    • Vídeo longo (~15 min) → YouTube")
-        print("    • Thumbnail automática")
-        print("    • Shorts por categoria (exceto Esporte) → YouTube + TikTok")
+        print("  Pipeline: 4 Shorts (1 por categoria)")
+        print("    • Política, Entretenimento, Mercado Financeiro, Policial")
+        print("    • Cada Short ~3 min com CTA")
+        print("    • Sem vídeo longo")
         print()
-        print("  1.  Executar pipeline completo")
-        print("  2.  Executar sem upload (só gera vídeo local)")
-        print("  3.  Executar e publicar como privado")
+        print("  1.  YouTube + TikTok (público)")
+        print("  2.  Apenas YouTube (público)")
+        print("  3.  Apenas TikTok")
+        print("  4.  YouTube privado (+ TikTok)")
+        print("  5.  Só gerar (sem upload)")
         print()
         print("  0.  Voltar")
         print()
         op = input("  Escolha: ").strip()
 
         if op == "1":
-            rodar([PYTHON, "main.py"], "Pipeline de notícias → YouTube público", pipeline="noticias")
+            rodar([PYTHON, "main.py"],
+                  "Notícias → YouTube + TikTok público", pipeline="noticias")
         elif op == "2":
-            rodar([PYTHON, "main.py", "--sem-upload"], "Pipeline de notícias (sem upload)", pipeline="noticias", upload=False)
+            rodar([PYTHON, "main.py", "--apenas-youtube"],
+                  "Notícias → apenas YouTube público", pipeline="noticias")
         elif op == "3":
-            rodar([PYTHON, "main.py", "--privado"], "Pipeline de notícias → YouTube privado", pipeline="noticias")
+            rodar([PYTHON, "main.py", "--apenas-tiktok"],
+                  "Notícias → apenas TikTok", pipeline="noticias")
+        elif op == "4":
+            rodar([PYTHON, "main.py", "--privado"],
+                  "Notícias → YouTube privado + TikTok", pipeline="noticias")
+        elif op == "5":
+            rodar([PYTHON, "main.py", "--sem-upload"],
+                  "Notícias (sem upload)", pipeline="noticias", upload=False)
         elif op == "0":
             return
         else:

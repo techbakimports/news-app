@@ -177,10 +177,12 @@ def kb_main() -> InlineKeyboardMarkup:
 
 def kb_noticias() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("▶️ Pipeline completo (Vídeo + Shorts)", callback_data="run|noticias|pub")],
-        [InlineKeyboardButton("💾 Só gerar (sem upload)",              callback_data="run|noticias|local")],
-        [InlineKeyboardButton("🔒 Publicar como privado (+ Shorts)",   callback_data="run|noticias|priv")],
-        [InlineKeyboardButton("⬅️ Voltar",                             callback_data="nav|main")],
+        [InlineKeyboardButton("▶️ YouTube + TikTok (público)",   callback_data="run|noticias|pub_ambos")],
+        [InlineKeyboardButton("📺 Apenas YouTube (público)",     callback_data="run|noticias|pub_yt")],
+        [InlineKeyboardButton("🎵 Apenas TikTok",                callback_data="run|noticias|pub_tk")],
+        [InlineKeyboardButton("🔒 YouTube privado (+TikTok)",    callback_data="run|noticias|priv_ambos")],
+        [InlineKeyboardButton("💾 Só gerar (sem upload)",        callback_data="run|noticias|local")],
+        [InlineKeyboardButton("⬅️ Voltar",                       callback_data="nav|main")],
     ])
 
 
@@ -608,10 +610,13 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         elif dest == "noticias":
             await q.edit_message_text(
                 "📰 <b>Notícias</b>\n\n"
-                "<b>Pipeline completo gera:</b>\n"
-                "• Vídeo longo (~15 min) → YouTube\n"
-                "• Thumbnail automática\n"
-                "• Shorts por categoria (exceto Esporte) → YouTube + TikTok",
+                "<b>Pipeline gera 4 Shorts (1 por categoria):</b>\n"
+                "• 🏛️ Política\n"
+                "• 🎬 Entretenimento\n"
+                "• 💰 Mercado Financeiro\n"
+                "• 👮 Policial\n\n"
+                "Cada Short ~3 min com CTA + Pexels.\n"
+                "<i>Escolha a plataforma:</i>",
                 reply_markup=kb_noticias(), parse_mode="HTML",
             )
         elif dest == "audio":
@@ -953,12 +958,29 @@ async def _handle_run(q, context, parts: list, force: bool = False) -> None:
     # -- notícias --
     if tipo == "noticias":
         visib = parts[1]
-        cmd   = [PYTHON, str(BASE_DIR / "main.py")]
-        if visib == "priv":
+        cmd = [PYTHON, str(BASE_DIR / "main.py")]
+        descricao_extra = ""
+        if visib == "pub_ambos":
+            descricao_extra = "YouTube + TikTok (público)"
+        elif visib == "pub_yt":
+            cmd.append("--apenas-youtube")
+            descricao_extra = "apenas YouTube (público)"
+        elif visib == "pub_tk":
+            cmd.append("--apenas-tiktok")
+            descricao_extra = "apenas TikTok"
+        elif visib == "priv_ambos":
             cmd.append("--privado")
+            descricao_extra = "YouTube privado + TikTok"
         elif visib == "local":
             cmd.append("--sem-upload")
-        descricao = f"Notícias → YouTube {_VISIB_LABEL[visib]}"
+            descricao_extra = "local (sem upload)"
+        # Legacy compat
+        elif visib == "priv":
+            cmd.append("--privado")
+            descricao_extra = "YouTube privado"
+        elif visib == "pub":
+            descricao_extra = "YouTube + TikTok"
+        descricao = f"Notícias → {descricao_extra}"
         asyncio.create_task(_run_pipeline(chat_id, context.bot, cmd, descricao, q.message))
         return
 

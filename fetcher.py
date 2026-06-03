@@ -182,16 +182,21 @@ def _is_today(entry) -> bool:
     return pub_utc.astimezone(BR_TZ).date() == datetime.now(BR_TZ).date()
 
 
-def fetch_latest_news(limit=1):
+def fetch_latest_news(limit=1, categories=None):
     """
     Busca notícias de HOJE por categoria dentro de cada site alvo usando Google News.
     Filtra pelo fuso horário de Brasília (UTC-3).
+
+    Args:
+        limit: quantas notícias por (categoria × site)
+        categories: lista de categorias a buscar (default: CATEGORIES do config)
     """
     all_news = []
     resolve_ok = 0
     resolve_fail = 0
+    cats = categories if categories is not None else CATEGORIES
 
-    for category in CATEGORIES:
+    for category in cats:
         for site in SITES_ALVO:
             source_label = "Google News" if site == "google_news" else site
             print(f"Buscando {category} em {source_label}...")

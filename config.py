@@ -16,7 +16,7 @@ SITES_ALVO = [
     "jovempan.com.br",
 ]
 
-# Categorias desejadas
+# Categorias possíveis (universo total)
 CATEGORIES = [
     "Política",
     "Esporte",
@@ -24,6 +24,15 @@ CATEGORIES = [
     "Mercado Financeiro",
     "Tecnologia",
     "Policial"
+]
+
+# Categorias usadas pelo Pipeline de Notícias (Shorts)
+# Cada uma vira 1 Short denso de ~3 min (formato Curiosidades)
+NEWS_SHORTS_CATEGORIES = [
+    "Política",
+    "Entretenimento",
+    "Mercado Financeiro",
+    "Policial",
 ]
 
 # Configurações de Resumo
