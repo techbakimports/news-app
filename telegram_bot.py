@@ -271,7 +271,11 @@ def _status_label(entry: dict) -> str:
 
 def kb_agenda() -> InlineKeyboardMarkup:
     cfg = _ler_cfg()
-    n, a, c = cfg["noticias"], cfg["audio"], cfg["curiosidades"]
+    # .get com default — não quebra se scheduler.json for legado/incompleto
+    _default = {"ativo": False, "horarios": [], "privado": False}
+    n = cfg.get("noticias",     _default)
+    a = cfg.get("audio",        _default)
+    c = cfg.get("curiosidades", _default)
     sn, sa, sc = _status_label(n), _status_label(a), _status_label(c)
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(f"📰 Notícias — {sn}",     callback_data="ag_n_hora")],
