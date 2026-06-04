@@ -38,13 +38,27 @@ CHAT_ID   = int(os.environ.get("TELEGRAM_CHAT_ID", "0"))
 PYTHON   = sys.executable
 BASE_DIR = Path(__file__).parent
 
-IS_WINDOWS    = os.name == "nt"
-TASK_FOLDER   = "YoutuberAutomatico"
-TASK_NOTICIAS = f"{TASK_FOLDER}\\Noticias"
-TASK_AUDIO    = f"{TASK_FOLDER}\\AudioLongo"
-CRON_NOTICIAS = "YOUTUBER:noticias"
-CRON_AUDIO    = "YOUTUBER:audio"
-LOG_DIR       = BASE_DIR / "logs"
+IS_WINDOWS        = os.name == "nt"
+TASK_FOLDER       = "YoutuberAutomatico"
+TASK_NOTICIAS     = f"{TASK_FOLDER}\\Noticias"
+TASK_AUDIO        = f"{TASK_FOLDER}\\AudioLongo"
+TASK_CURIOSIDADES = f"{TASK_FOLDER}\\Curiosidades"
+CRON_NOTICIAS     = "YOUTUBER:noticias"
+CRON_AUDIO        = "YOUTUBER:audio"
+CRON_CURIOSIDADES = "YOUTUBER:curiosidades"
+LOG_DIR           = BASE_DIR / "logs"
+
+# Mapeamentos pra acelerar lookups
+_TASKS_BY_TIPO = {
+    "noticias":     TASK_NOTICIAS,
+    "audio":        TASK_AUDIO,
+    "curiosidades": TASK_CURIOSIDADES,
+}
+_TAGS_BY_TIPO = {
+    "noticias":     CRON_NOTICIAS,
+    "audio":        CRON_AUDIO,
+    "curiosidades": CRON_CURIOSIDADES,
+}
 SCHEDULER_CFG = BASE_DIR / "scheduler.json"
 
 # Rate-limiter global para editMessageText (Telegram: ~20 edições/min por chat)
@@ -144,33 +158,67 @@ def _cmd_curiosidades(privado: bool, plataforma: str = "ambos") -> str:
     return cmd
 
 
-def _criar_agendamento(tipo: str, comando: str, horario: str) -> None:
+def _criar_agendamento(tipo: str, comando: str, horarios) -> None:
+    """
+    Cria entradas de cron/Task pra um pipeline.
+    horarios pode ser uma string única (compat) ou uma lista.
+    """
+    # Normaliza pra lista
+    if isinstance(horarios, str):
+        horarios = [horarios]
+
     if IS_WINDOWS:
-        task = TASK_NOTICIAS if tipo == "noticias" else TASK_AUDIO
-        subprocess.run(
-            ["schtasks", "/Create", "/TN", task, "/TR", comando,
-             "/SC", "DAILY", "/ST", horario, "/F"],
-            check=True, capture_output=True,
-        )
+        task_prefix = _TASKS_BY_TIPO.get(tipo, TASK_NOTICIAS)
+        # Remove tasks antigas com o mesmo prefixo
+        _remover_agendamento(tipo)
+        # Cria 1 task por horário
+        for h in horarios:
+            sufixo = h.replace(":", "_")
+            task_name = f"{task_prefix}_{sufixo}"
+            subprocess.run(
+                ["schtasks", "/Create", "/TN", task_name, "/TR", comando,
+                 "/SC", "DAILY", "/ST", h, "/F"],
+                check=True, capture_output=True,
+            )
     else:
-        tag = CRON_NOTICIAS if tipo == "noticias" else CRON_AUDIO
+        tag = _TAGS_BY_TIPO.get(tipo, CRON_NOTICIAS)
         LOG_DIR.mkdir(exist_ok=True)
         log_path = LOG_DIR / f"{tag.split(':')[-1]}.log"
-        hh, mm = horario.split(":")
-        nova = f"{mm} {hh} * * * {comando} >> {log_path} 2>&1  # {tag}\n"
         r = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
         crontab = r.stdout if r.returncode == 0 else ""
+        # Remove TODAS as linhas existentes desse tag, depois adiciona uma por horário
         linhas = [l for l in crontab.splitlines(keepends=True) if f"# {tag}" not in l]
-        linhas.append(nova)
+        for h in horarios:
+            hh, mm = h.split(":")
+            linhas.append(f"{mm} {hh} * * * {comando} >> {log_path} 2>&1  # {tag}\n")
         subprocess.run(["crontab", "-"], input="".join(linhas), text=True, check=True)
 
 
 def _remover_agendamento(tipo: str) -> None:
     if IS_WINDOWS:
-        task = TASK_NOTICIAS if tipo == "noticias" else TASK_AUDIO
-        subprocess.run(["schtasks", "/Delete", "/TN", task, "/F"], capture_output=True)
+        task_prefix = _TASKS_BY_TIPO.get(tipo, TASK_NOTICIAS)
+        # Remove TODAS as tasks que começam com o prefixo
+        try:
+            r = subprocess.run(
+                ["schtasks", "/Query", "/FO", "CSV", "/NH"],
+                capture_output=True, text=True,
+            )
+            if r.returncode == 0:
+                folder_prefix = "\\" + task_prefix
+                for line in r.stdout.splitlines():
+                    parts = [p.strip('"') for p in line.split('","')]
+                    if not parts:
+                        continue
+                    tn = parts[0].lstrip('"')
+                    if tn.startswith(folder_prefix):
+                        subprocess.run(
+                            ["schtasks", "/Delete", "/TN", tn, "/F"],
+                            capture_output=True,
+                        )
+        except Exception:
+            pass
     else:
-        tag = CRON_NOTICIAS if tipo == "noticias" else CRON_AUDIO
+        tag = _TAGS_BY_TIPO.get(tipo, CRON_NOTICIAS)
         r = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
         crontab = r.stdout if r.returncode == 0 else ""
         linhas = [l for l in crontab.splitlines(keepends=True) if f"# {tag}" not in l]
