@@ -247,6 +247,7 @@ async def run_tech_news(on_progress=None):
                     upload=False, privacy=privacy,
                     hashtags=tech_hashtags, playlist_key="tech",
                     instagram_enabled=False,
+                    link=item.get("link"),
                 )
                 print(f"  Vídeo local: {path}")
             except Exception as e:
@@ -260,6 +261,7 @@ async def run_tech_news(on_progress=None):
                 upload=True, privacy=privacy,
                 hashtags=tech_hashtags, playlist_key="tech",
                 instagram_enabled=False,
+                link=item.get("link"),
             )
             if video_id:
                 uploaded_ids.append(video_id)

@@ -230,6 +230,7 @@ async def run_news_cycle(on_progress=None):
                     instagram_enabled=False,
                     youtube_enabled=POST_YOUTUBE,
                     tiktok_enabled=POST_TIKTOK,
+                    link=item.get("link"),
                 )
                 print(f"  Vídeo local: {path}")
                 resultados.append((cat, None, False))
@@ -250,6 +251,7 @@ async def run_news_cycle(on_progress=None):
                 instagram_enabled=False,
                 youtube_enabled=POST_YOUTUBE,
                 tiktok_enabled=POST_TIKTOK,
+                link=item.get("link"),
             )
             resultados.append((cat, video_id, tiktok_ok))
         except Exception as e:

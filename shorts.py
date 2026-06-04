@@ -264,6 +264,7 @@ async def generate_short_from_text(
     instagram_enabled: bool = True,
     youtube_enabled: bool = True,
     tiktok_enabled: bool = True,
+    link: str | None = None,
 ) -> tuple[str | None, bool]:
     """
     Gera um Short vertical 1080×1920 a partir de TEXTO PRONTO (sem chamar Gemini).
@@ -371,8 +372,12 @@ async def generate_short_from_text(
 
     yt_title = f"{title[:80]} #Shorts"
     hash_line = " ".join(f"#{h}" for h in hashtags)
+    link_bloco = ""
+    if link:
+        link_bloco = f"📎 Leia a notícia completa:\n{link}\n\n"
     yt_desc = (
         f"{summary}\n\n"
+        f"{link_bloco}"
         f"Fonte: {source}\n"
         f"📰 {CHANNEL_NAME}\n\n"
         f"{hash_line}"
