@@ -112,16 +112,36 @@ def _salvar_cfg(cfg: dict) -> None:
     SCHEDULER_CFG.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def _cmd_noticias(privado: bool) -> str:
+def _cmd_noticias(privado: bool, plataforma: str = "ambos") -> str:
+    """plataforma: 'ambos' | 'youtube' | 'tiktok'"""
     cd = f"cd {BASE_DIR} &&" if not IS_WINDOWS else ""
     cmd = f'{cd} "{PYTHON}" "{BASE_DIR / "main.py"}"'
-    return cmd + " --privado" if privado else cmd
+    if plataforma == "youtube":
+        cmd += " --apenas-youtube"
+    elif plataforma == "tiktok":
+        cmd += " --apenas-tiktok"
+    if privado:
+        cmd += " --privado"
+    return cmd
 
 
 def _cmd_audio(tipo: str, horas: float, privado: bool) -> str:
     cd = f"cd {BASE_DIR} &&" if not IS_WINDOWS else ""
     cmd = f'{cd} "{PYTHON}" "{BASE_DIR / "ambient_video.py"}" {tipo} --horas {horas}'
     return cmd + " --privado" if privado else cmd
+
+
+def _cmd_curiosidades(privado: bool, plataforma: str = "ambos") -> str:
+    """plataforma: 'ambos' | 'youtube' | 'tiktok'"""
+    cd = f"cd {BASE_DIR} &&" if not IS_WINDOWS else ""
+    cmd = f'{cd} "{PYTHON}" "{BASE_DIR / "curiosidades.py"}"'
+    if plataforma == "youtube":
+        cmd += " --apenas-youtube"
+    elif plataforma == "tiktok":
+        cmd += " --apenas-tiktok"
+    if privado:
+        cmd += " --privado"
+    return cmd
 
 
 def _criar_agendamento(tipo: str, comando: str, horario: str) -> None:
