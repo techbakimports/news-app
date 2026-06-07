@@ -5,7 +5,7 @@ import time
 import feedparser
 import requests
 from bs4 import BeautifulSoup
-from config import SITES_ALVO, CATEGORIES
+from config import SITES_ALVO, SITES_CELEBRIDADES, CATEGORIES
 import urllib.parse
 from datetime import datetime, date, timezone, timedelta
 
@@ -187,6 +187,12 @@ def fetch_latest_news(limit=1, categories=None):
     Busca notícias de HOJE por categoria dentro de cada site alvo usando Google News.
     Filtra pelo fuso horário de Brasília (UTC-3).
 
+    Regras de fonte por categoria:
+      - "Celebridades" → usa SITES_CELEBRIDADES (portais de fofoca) com query
+        apenas por site (sem palavra-chave de categoria, já que os sites são
+        especializados e a palavra "Celebridades" raramente aparece nos títulos).
+      - Demais categorias → usa SITES_ALVO com query "{categoria} site:{site}".
+
     Args:
         limit: quantas notícias por (categoria × site)
         categories: lista de categorias a buscar (default: CATEGORIES do config)
@@ -197,16 +203,25 @@ def fetch_latest_news(limit=1, categories=None):
     cats = categories if categories is not None else CATEGORIES
 
     for category in cats:
-        for site in SITES_ALVO:
+        # --- seleciona lista de sites e estratégia de query por categoria ---
+        if category == "Celebridades":
+            sites = SITES_CELEBRIDADES
+            # Não usa a palavra "Celebridades" na query — os sites já são
+            # especializados em fofoca; adicionar o termo reduziria resultados.
+            def _build_query(site):
+                return f"site:{site} when:1d"
+        else:
+            sites = SITES_ALVO
+            def _build_query(site):
+                if site == "google_news":
+                    return f"{category} when:1d"
+                return f"{category} site:{site} when:1d"
+
+        for site in sites:
             source_label = "Google News" if site == "google_news" else site
             print(f"Buscando {category} em {source_label}...")
 
-            # google_news = busca geral sem filtro de site (top resultados do Google News)
-            if site == "google_news":
-                query = f"{category} when:1d"
-            else:
-                query = f"{category} site:{site} when:1d"
-
+            query = _build_query(site)
             encoded_query = urllib.parse.quote(query)
             rss_url = f"https://news.google.com/rss/search?q={encoded_query}&hl=pt-BR&gl=BR&ceid=BR:pt-419"
 

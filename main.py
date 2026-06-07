@@ -25,8 +25,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from fetcher import fetch_latest_news, extract_article_content, select_unique_news
-from summarizer import summarize_news_for_short
-from config import DRIVE_SYNC_DIR, AUDIO_OUTPUT_DIR, NEWS_SHORTS_CATEGORIES
+from summarizer import summarize_news_for_short, select_most_relevant
+from config import DRIVE_SYNC_DIR, AUDIO_OUTPUT_DIR, NEWS_SHORTS_CATEGORIES, TIKTOK_UPLOAD
 
 # Logging — monitorar com: tail -f logs/noticias.log
 _LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
@@ -55,9 +55,9 @@ def print(*args, **kwargs):  # noqa: A001
 YOUTUBE_UPLOAD = True
 YOUTUBE_PUBLISH_NOW = True
 
-# Plataformas-alvo (modificadas via CLI args)
+# Plataformas-alvo (modificadas via CLI args; TIKTOK lê kill-switch global de config.py)
 POST_YOUTUBE = True
-POST_TIKTOK = True
+POST_TIKTOK = TIKTOK_UPLOAD
 
 # Configuração de limpeza
 CLEANUP_HOURS = 24
@@ -106,9 +106,11 @@ async def run_news_cycle(on_progress=None):
     print(f"Plataformas: {' + '.join(plataformas) if plataformas else 'NENHUMA'}")
 
     # ---------- Fase 1: Fetch ----------
+    # limit=5 por (categoria × site) — pool maior garante candidatos suficientes
+    # para o LLM escolher a mais relevante em vez de pegar só a primeira.
     print(f"\n{_elapsed()} [FASE 1] Buscando notícias das categorias selecionadas...")
     phase_start = time.time()
-    raw_news = fetch_latest_news(limit=3, categories=NEWS_SHORTS_CATEGORIES)
+    raw_news = fetch_latest_news(limit=5, categories=NEWS_SHORTS_CATEGORIES)
     print(f"{_elapsed()} [FASE 1] OK — {len(raw_news)} candidatos em {int(time.time()-phase_start)}s")
 
     if not raw_news:
@@ -120,20 +122,44 @@ async def run_news_cycle(on_progress=None):
             pass
         return []
 
-    # ---------- Fase 2: Dedup ----------
-    print(f"\n{_elapsed()} [FASE 2] Deduplicando...")
+    # ---------- Fase 1.5: Trending topics (sinal de engajamento) ----------
+    print(f"\n{_elapsed()} [FASE 1.5] Coletando trending topics...")
+    trending = None
+    try:
+        from trends import get_trending_topics
+        trending = get_trending_topics(use_cache=True)
+        tw_count = len(trending.get("twitter", []))
+        gg_count = len(trending.get("google",  []))
+        print(f"{_elapsed()} [FASE 1.5] OK — {tw_count} Twitter | {gg_count} Google")
+    except Exception as e:
+        print(f"{_elapsed()} [FASE 1.5] Falhou (não crítico): {e}")
+        trending = None
+
+    # ---------- Fase 2: Dedup + seleção por relevância ----------
+    print(f"\n{_elapsed()} [FASE 2] Deduplicando e selecionando mais relevante por categoria...")
     items_unicos = select_unique_news(raw_news)
     print(f"{_elapsed()} [FASE 2] {len(items_unicos)} únicas após dedup")
 
-    # Pega 1 notícia por categoria (top do dia)
-    por_categoria = {}
+    # Agrupa TODOS os candidatos por categoria
+    pool_por_categoria: dict[str, list] = {}
     for item in items_unicos:
         cat = item.get("category", "")
-        if cat in NEWS_SHORTS_CATEGORIES and cat not in por_categoria:
-            por_categoria[cat] = item
+        if cat in NEWS_SHORTS_CATEGORIES:
+            pool_por_categoria.setdefault(cat, []).append(item)
 
-    items_selecionados = [por_categoria[c] for c in NEWS_SHORTS_CATEGORIES if c in por_categoria]
-    print(f"{_elapsed()} [FASE 2] Selecionadas {len(items_selecionados)}/{len(NEWS_SHORTS_CATEGORIES)} categorias")
+    # Para cada categoria, usa LLM pra escolher a mais relevante do pool
+    # passando os trending topics como contexto de engajamento
+    items_selecionados = []
+    for cat in NEWS_SHORTS_CATEGORIES:
+        candidatos = pool_por_categoria.get(cat, [])
+        if not candidatos:
+            print(f"  ⚠️  Sem candidatos para '{cat}'")
+            continue
+        print(f"\n  → '{cat}': {len(candidatos)} candidatos — selecionando mais relevante...")
+        escolhido = select_most_relevant(cat, candidatos, trending=trending)
+        items_selecionados.append(escolhido)
+
+    print(f"\n{_elapsed()} [FASE 2] {len(items_selecionados)}/{len(NEWS_SHORTS_CATEGORIES)} categorias com notícia selecionada")
 
     if not items_selecionados:
         print("Nenhuma categoria teve notícia válida. Abortando.")
@@ -156,12 +182,16 @@ async def run_news_cycle(on_progress=None):
     for item in items_selecionados:
         cat = item["category"]
         print(f"\n  → {cat}: resumindo...")
-        narracao = summarize_news_for_short(
+        result = summarize_news_for_short(
             category=cat,
             title=item["title"],
             content=item["_content"],
         )
-        if narracao:
+        if result:
+            narracao, corrected_cat = result
+            if corrected_cat != cat:
+                print(f"  📌 Categoria corrigida: {cat} → {corrected_cat}")
+                item["category"] = corrected_cat
             item["narracao"] = narracao
             items_com_narracao.append(item)
         else:
