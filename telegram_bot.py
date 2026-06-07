@@ -368,11 +368,15 @@ def _kb_horarios(prefixo: str, back: str) -> InlineKeyboardMarkup:
 
 
 def _kb_picker_horarios(prefix_h: str, horarios_str: str, back: str,
-                        prefix_next: str, extra_params: str = "") -> InlineKeyboardMarkup:
+                        prefix_next: str, extra_params: str = "",
+                        tipo_ag: str = "") -> InlineKeyboardMarkup:
     """
     Picker de múltiplos horários (toggle).
     Cada botão de hora alterna se está na lista.
     'extra_params' vai concatenado em prefix_next (ex: tipo|horas pro áudio).
+    'tipo_ag' (noticias|curiosidades|audio): quando informado, exibe o botão
+    'Desativar agendamento' enquanto a seleção estiver vazia — dispara
+    'run|ag|des|<tipo_ag>' que remove o cron e marca ativo=False no cfg.
     """
     horarios_atuais = [h for h in horarios_str.split(",") if h] if horarios_str else []
     horas = ["05:00", "06:00", "07:00", "08:00", "09:00", "10:00",
@@ -399,6 +403,12 @@ def _kb_picker_horarios(prefix_h: str, horarios_str: str, back: str,
             callback_data=next_data,
         )])
         rows.append([InlineKeyboardButton("🗑️ Limpar", callback_data=f"{prefix_h}|")])
+    elif tipo_ag:
+        # Seleção vazia + tipo conhecido → permite desativar agendamento de fato
+        rows.append([InlineKeyboardButton(
+            "🚫 Desativar agendamento",
+            callback_data=f"run|ag|des|{tipo_ag}",
+        )])
     rows.append([InlineKeyboardButton("⬅️ Voltar", callback_data=back)])
     return InlineKeyboardMarkup(rows)
 
@@ -870,7 +880,8 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         horarios_str = ",".join(atual)
         await q.edit_message_text(
             _ag_titulo("Notícias", atual),
-            reply_markup=_kb_picker_horarios("ag_n_h", horarios_str, "nav|agenda", "ag_n_priv"),
+            reply_markup=_kb_picker_horarios("ag_n_h", horarios_str, "nav|agenda", "ag_n_priv",
+                                             tipo_ag="noticias"),
             parse_mode="HTML",
         )
         return
@@ -881,7 +892,8 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         atual = [h for h in horarios_str.split(",") if h]
         await q.edit_message_text(
             _ag_titulo("Notícias", atual),
-            reply_markup=_kb_picker_horarios("ag_n_h", horarios_str, "nav|agenda", "ag_n_priv"),
+            reply_markup=_kb_picker_horarios("ag_n_h", horarios_str, "nav|agenda", "ag_n_priv",
+                                             tipo_ag="noticias"),
             parse_mode="HTML",
         )
         return
@@ -907,7 +919,8 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         horarios_str = ",".join(atual)
         await q.edit_message_text(
             _ag_titulo("Curiosidades", atual),
-            reply_markup=_kb_picker_horarios("ag_c_h", horarios_str, "nav|agenda", "ag_c_priv"),
+            reply_markup=_kb_picker_horarios("ag_c_h", horarios_str, "nav|agenda", "ag_c_priv",
+                                             tipo_ag="curiosidades"),
             parse_mode="HTML",
         )
         return
@@ -918,7 +931,8 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         atual = [h for h in horarios_str.split(",") if h]
         await q.edit_message_text(
             _ag_titulo("Curiosidades", atual),
-            reply_markup=_kb_picker_horarios("ag_c_h", horarios_str, "nav|agenda", "ag_c_priv"),
+            reply_markup=_kb_picker_horarios("ag_c_h", horarios_str, "nav|agenda", "ag_c_priv",
+                                             tipo_ag="curiosidades"),
             parse_mode="HTML",
         )
         return
@@ -1256,7 +1270,9 @@ async def _handle_run(q, context, parts: list, force: bool = False) -> None:
             cfg = _ler_cfg()
             try:
                 _remover_agendamento(tipo_ag)
-                cfg[tipo_ag]["ativo"] = False
+                # setdefault: se a chave não existir (ex.: usuário desativa sem nunca ter agendado),
+                # cria entrada vazia em vez de KeyError
+                cfg.setdefault(tipo_ag, {})["ativo"] = False
                 _salvar_cfg(cfg)
                 nomes = {"noticias": "Notícias", "audio": "Áudio Longo", "curiosidades": "Curiosidades"}
                 nome = nomes.get(tipo_ag, tipo_ag)

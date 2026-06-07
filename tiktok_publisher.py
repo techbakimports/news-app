@@ -11,6 +11,7 @@ Variável no .env (opcional):
 """
 from __future__ import annotations
 
+import json
 import os
 import time
 
@@ -24,6 +25,50 @@ _COOKIES_PATH = os.environ.get(
 )
 
 TIKTOK_ENABLED = os.path.exists(_COOKIES_PATH)
+
+
+def _load_cookies() -> list[dict] | None:
+    """
+    Carrega cookies do arquivo (JSON ou Netscape txt).
+    Retorna lista de dicts compatível com Playwright, ou None se falhar.
+    """
+    if not os.path.exists(_COOKIES_PATH):
+        return None
+    try:
+        with open(_COOKIES_PATH, "r", encoding="utf-8") as f:
+            content = f.read().strip()
+        # Detecta formato: JSON começa com [ ou {
+        if content.startswith("[") or content.startswith("{"):
+            raw = json.loads(content)
+            cookies = []
+            for c in raw:
+                cookie = {
+                    "name": c["name"],
+                    "value": c["value"],
+                    "domain": c.get("domain", ".tiktok.com"),
+                    "path": c.get("path", "/"),
+                }
+                # Normaliza expiração para o campo que o Playwright espera
+                exp = c.get("expirationDate") or c.get("expiry") or c.get("expires")
+                if exp:
+                    cookie["expires"] = int(exp)
+                return_same_site = c.get("sameSite", "")
+                # Playwright aceita: "Strict", "Lax", "None"
+                same_site_map = {
+                    "no_restriction": "None", "none": "None",
+                    "lax": "Lax", "strict": "Strict",
+                }
+                mapped = same_site_map.get(return_same_site.lower(), "")
+                if mapped:
+                    cookie["sameSite"] = mapped
+                cookies.append(cookie)
+            return cookies
+        else:
+            # Formato Netscape txt — deixa o tiktok-uploader ler direto
+            return None
+    except Exception as e:
+        print(f"  TikTok: erro ao ler cookies: {e}")
+        return None
 
 
 def _diagnosticar_erro_tiktok(err: Exception) -> str:
@@ -124,9 +169,52 @@ def upload_video(
 
     try:
         from tiktok_uploader.upload import upload_video as _tk_upload
+        import tiktok_uploader.upload as _tk_module
     except Exception as e:
         print(f"  TikTok: {_diagnosticar_erro_tiktok(e)}")
         return False
+
+    # Monkey-patch: fecha overlay de tutorial (joyride) que bloqueia cliques.
+    # O TikTok mostra um tutorial/onboarding que intercepta pointer events.
+    # Injetamos remoção do overlay em CADA etapa que interage com a página.
+    _original_remove_cookies = _tk_module._remove_cookies_window
+    _original_set_interactivity = _tk_module._set_interactivity
+    _original_set_description = _tk_module._set_description
+
+    _JOYRIDE_JS = """
+        const overlay = document.querySelector('[data-test-id="overlay"]');
+        if (overlay) overlay.remove();
+        const portal = document.getElementById('react-joyride-portal');
+        if (portal) portal.remove();
+        // Também remove qualquer tooltip/beacon do joyride
+        document.querySelectorAll('.react-joyride__tooltip, .react-joyride__beacon')
+            .forEach(el => el.remove());
+    """
+
+    def _patched_remove_cookies(page, *args, **kwargs):
+        _original_remove_cookies(page, *args, **kwargs)
+        try:
+            page.evaluate(_JOYRIDE_JS)
+        except Exception:
+            pass
+
+    def _patched_set_interactivity(page, *args, **kwargs):
+        try:
+            page.evaluate(_JOYRIDE_JS)
+        except Exception:
+            pass
+        return _original_set_interactivity(page, *args, **kwargs)
+
+    def _patched_set_description(page, description, *args, **kwargs):
+        try:
+            page.evaluate(_JOYRIDE_JS)
+        except Exception:
+            pass
+        return _original_set_description(page, description, *args, **kwargs)
+
+    _tk_module._remove_cookies_window = _patched_remove_cookies
+    _tk_module._set_interactivity = _patched_set_interactivity
+    _tk_module._set_description = _patched_set_description
 
     try:
         caption = description
@@ -134,14 +222,32 @@ def upload_video(
             tags = " ".join(f"#{t.strip('#')}" for t in hashtags)
             caption = f"{description} {tags}"
 
-        print(f"  TikTok: 📤 enviando vídeo ({os.path.getsize(video_path) // 1024} KB)...")
-        _tk_upload(
-            filename=video_path,
-            description=caption,
-            cookies=_COOKIES_PATH,
-            headless=True,
-        )
-        print("  TikTok: ✅ vídeo publicado com sucesso!")
+        print(f"  TikTok: enviando video ({os.path.getsize(video_path) // 1024} KB)...")
+
+        cookies_list = _load_cookies()
+        if cookies_list:
+            # JSON detectado — passa como lista de dicts (Playwright-compatible)
+            result = _tk_upload(
+                filename=video_path,
+                description=caption,
+                cookies_list=cookies_list,
+                headless=True,
+            )
+        else:
+            # Netscape txt — passa o path pro parser interno
+            result = _tk_upload(
+                filename=video_path,
+                description=caption,
+                cookies=_COOKIES_PATH,
+                headless=True,
+            )
+
+        # upload_video retorna True se sucesso, False se falhou
+        if result is False:
+            print("  TikTok: upload retornou falha (video nao publicado)")
+            return False
+
+        print("  TikTok: video publicado com sucesso!")
         return True
     except Exception as e:
         print(f"  TikTok: {_diagnosticar_erro_tiktok(e)}")
