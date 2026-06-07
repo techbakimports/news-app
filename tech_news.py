@@ -29,7 +29,7 @@ from fetcher import (
     extract_article_content,
     _BROWSER_HEADERS,
 )
-from summarizer import summarize_news_batch, select_top_n_relevant
+from summarizer import summarize_news_for_short, select_top_n_relevant
 
 # Logging
 _LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
@@ -193,27 +193,28 @@ async def run_tech_news(on_progress=None):
         try: await on_progress(f"Resumindo {len(items)} tópicos...")
         except Exception: pass
 
-    for item in items:
+    _CTA_TECH = (
+        " Curtiu esse conteúdo? Deixa o like, compartilha com quem é da área, "
+        "e se inscreve no canal pra não perder nenhuma novidade do mundo tech."
+    )
+
+    items_com_resumo = []
+    pulados = 0
+    for idx, item in enumerate(items, 1):
+        print(f"  [{idx}/{len(items)}] {item['title'][:70]}")
         content = extract_article_content(item["link"])
         item["_content"] = content if content else item.get("summary", "")
 
-    batch_input = [
-        {"category": i["category"], "title": i["title"], "content": i["_content"]}
-        for i in items
-    ]
-    summaries = summarize_news_batch(batch_input)
-
-    # Filtra itens SEM resumo de LLM — não geramos Short só com título
-    items_com_resumo = []
-    pulados = 0
-    for item, summary in zip(items, summaries):
-        if summary:
-            item["ai_summary"] = summary
+        result = summarize_news_for_short("Tecnologia", item["title"], item["_content"])
+        if result:
+            narracao, _ = result
+            item["ai_summary"] = narracao + _CTA_TECH
             items_com_resumo.append(item)
         else:
+            print(f"    ⚠️  Sem narração — pulando")
             pulados += 1
 
-    print(f"  Tópicos com resumo: {len(items_com_resumo)} | pulados sem resumo: {pulados}")
+    print(f"  Tópicos com narração: {len(items_com_resumo)} | pulados: {pulados}")
 
     if not items_com_resumo:
         msg = "❌ Nenhum tópico teve resumo de LLM. Pipeline ABORTADO (Groq + Gemini falharam)."
