@@ -123,53 +123,29 @@ def _fetch_google_trends() -> list[str]:
 def _fetch_youtube_trending() -> list[str]:
     """
     Retorna títulos dos vídeos em alta no YouTube Brasil via Data API v3.
-    Usa a mesma chave OAuth do pipeline de upload (credenciais locais).
+    Reutiliza as credenciais OAuth do pipeline de upload (credentials/token.json)
+    — não precisa de YOUTUBE_API_KEY separada.
     Retorna lista vazia em caso de falha.
     """
     try:
-        # Tenta usar as credenciais OAuth já configuradas no projeto
-        creds_file = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)),
-            "credentials", "youtube_token.json",
-        )
-        # Fallback: tenta API key simples se disponível no .env
-        api_key = os.getenv("YOUTUBE_API_KEY", "")
-
-        if api_key:
-            url = (
-                "https://www.googleapis.com/youtube/v3/videos"
-                f"?part=snippet&chart=mostPopular&regionCode=BR"
-                f"&maxResults=20&key={api_key}"
-            )
-            r = requests.get(url, timeout=10)
-            data = r.json()
-            titles = [
-                item["snippet"]["title"]
-                for item in data.get("items", [])
-            ]
-            print(f"  [youtube] {len(titles)} vídeos trending BR (API key)")
-            return titles
-
-        # Sem API key — tenta via OAuth do projeto
+        from uploader import _get_credentials
         from googleapiclient.discovery import build
-        from google.oauth2.credentials import Credentials
 
-        if not os.path.exists(creds_file):
-            print("  [youtube] sem API key nem token OAuth — pulando trending YouTube")
-            return []
-
-        creds = Credentials.from_authorized_user_file(creds_file)
+        creds   = _get_credentials()
         youtube = build("youtube", "v3", credentials=creds)
-        resp = youtube.videos().list(
+        resp    = youtube.videos().list(
             part="snippet",
             chart="mostPopular",
             regionCode="BR",
             maxResults=20,
         ).execute()
         titles = [item["snippet"]["title"] for item in resp.get("items", [])]
-        print(f"  [youtube] {len(titles)} vídeos trending BR (OAuth)")
+        print(f"  [youtube] {len(titles)} vídeos trending BR")
         return titles
 
+    except FileNotFoundError:
+        print("  [youtube] credentials/token.json não encontrado — pulando")
+        return []
     except Exception as e:
         print(f"  [youtube] Falhou: {e}")
         return []
