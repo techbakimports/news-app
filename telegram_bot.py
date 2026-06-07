@@ -234,7 +234,6 @@ def kb_main() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("🎵 Áudio Longo",          callback_data="nav|audio")],
         [InlineKeyboardButton("⏰ Agendamento",           callback_data="nav|agenda")],
         [InlineKeyboardButton("📂 Organizar Playlists",  callback_data="run|playlists")],
-        [InlineKeyboardButton("📊 Status Gemini",        callback_data="run|gemini_check")],
     ])
 
 
