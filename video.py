@@ -50,13 +50,14 @@ def _build_pexels_query(title: str, category: str) -> str:
 
 
 CATEGORY_COLORS = {
-    "Política": (220, 50, 50),
-    "Esporte": (30, 130, 220),
-    "Entretenimento": (180, 50, 220),
-    "Mercado Financeiro": (30, 170, 80),
-    "Tecnologia": (30, 180, 200),
-    "Policial": (220, 120, 30),
-    "Curiosidade": (245, 180, 30),  # amarelo vibrante — chama atenção
+    "Política":           (220, 50,  50),   # vermelho
+    "Esporte":            (30,  130, 220),   # azul
+    "Entretenimento":     (180, 50,  220),   # roxo
+    "Mercado Financeiro": (30,  170, 80),    # verde
+    "Tecnologia":         (30,  180, 200),   # ciano
+    "Policial":           (220, 120, 30),    # laranja
+    "Curiosidade":        (245, 180, 30),    # amarelo vibrante
+    "Celebridades":       (220, 60,  140),   # rosa pink — identidade do nicho
 }
 DEFAULT_COLOR = (100, 100, 200)
 

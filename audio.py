@@ -3,9 +3,14 @@ import edge_tts
 import os
 import re
 import wave
-from config import TTS_VOICE, AUDIO_OUTPUT_DIR
+from config import TTS_VOICE, AUDIO_OUTPUT_DIR, CATEGORY_VOICES
 
 WORDS_PER_MINUTE = 145  # velocidade média da voz pt-BR-AntonioNeural
+
+
+def voice_for_category(category: str) -> str:
+    """Retorna a voz Edge TTS correta para a categoria. Fallback: TTS_VOICE global."""
+    return CATEGORY_VOICES.get(category, TTS_VOICE)
 
 
 def clean_text(text):
@@ -60,16 +65,22 @@ def _write_silence(path: str, duration_s: float, sample_rate: int = 22050) -> No
         w.writeframes(b"\x00\x00" * n)
 
 
-async def _stream_to_bytes(text: str, max_retries: int = 3) -> bytes:
-    """Converte texto em bytes MP3 via Edge TTS com retry automático em falha."""
+async def _stream_to_bytes(text: str, max_retries: int = 3, voice: str | None = None) -> bytes:
+    """Converte texto em bytes MP3 via Edge TTS com retry automático em falha.
+
+    Args:
+        voice: voz Edge TTS a usar. Se None, usa TTS_VOICE global de config.py.
+               Use voice_for_category(category) para selecionar por categoria.
+    """
     cleaned = clean_text(text)
+    selected_voice = voice or TTS_VOICE
     last_err: Exception | None = None
 
     for attempt in range(max_retries):
         try:
             data = bytearray()
             for chunk in _split_text(cleaned, max_chars=2000):
-                communicate = edge_tts.Communicate(chunk, TTS_VOICE)
+                communicate = edge_tts.Communicate(chunk, selected_voice)
                 async for c in communicate.stream():
                     if c["type"] == "audio":
                         data.extend(c["data"])
@@ -86,16 +97,22 @@ async def _stream_to_bytes(text: str, max_retries: int = 3) -> bytes:
     return b""
 
 
-async def generate_audio(text, filename):
-    """Gera áudio a partir do texto usando edge-tts, suportando textos longos."""
+async def generate_audio(text, filename, voice: str | None = None):
+    """Gera áudio a partir do texto usando edge-tts, suportando textos longos.
+
+    Args:
+        voice: voz Edge TTS. Se None, usa TTS_VOICE global.
+               Passe voice_for_category(category) para selecionar por categoria.
+    """
     if not os.path.exists(AUDIO_OUTPUT_DIR):
         os.makedirs(AUDIO_OUTPUT_DIR)
 
     output_path = os.path.join(AUDIO_OUTPUT_DIR, filename)
-    data = await _stream_to_bytes(text)
+    data = await _stream_to_bytes(text, voice=voice)
     with open(output_path, "wb") as f:
         f.write(data)
-    print(f"Áudio salvo: {output_path} ({len(data) / 1024:.0f} KB)")
+    used_voice = voice or TTS_VOICE
+    print(f"Áudio salvo: {output_path} ({len(data) / 1024:.0f} KB) [{used_voice}]")
     return output_path
 
 

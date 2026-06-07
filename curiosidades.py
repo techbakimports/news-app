@@ -22,7 +22,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from config import AUDIO_OUTPUT_DIR
+from config import AUDIO_OUTPUT_DIR, TIKTOK_UPLOAD
 
 # -- Logging -------------------------------------------------------------------
 
@@ -59,9 +59,9 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 YOUTUBE_UPLOAD = True
 YOUTUBE_PUBLISH_NOW = True
 
-# Plataformas-alvo (modificadas via CLI args)
+# Plataformas-alvo (modificadas via CLI args; TIKTOK lê kill-switch global de config.py)
 POST_YOUTUBE = True
-POST_TIKTOK = True
+POST_TIKTOK = TIKTOK_UPLOAD
 
 # Histórico de temas pra evitar repetição
 _HISTORY_FILE = os.path.join(_LOG_DIR, "curiosidades_history.json")
@@ -347,6 +347,7 @@ async def run_curiosidade(on_progress=None):
         instagram_enabled=False,
         youtube_enabled=POST_YOUTUBE,
         tiktok_enabled=POST_TIKTOK,
+        voice="pt-BR-FranciscaNeural",  # Francisca fixa em Curiosidades
     )
 
     plataformas = []

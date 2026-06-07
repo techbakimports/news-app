@@ -50,27 +50,107 @@ SHORTS_OUTPUT_DIR = "./shorts_videos"
 
 
 # ---------------------------------------------------------------------------
+# Gerador de tags contextuais para descrição do YouTube
+# ---------------------------------------------------------------------------
+
+def _generate_tags(title: str, category: str, summary: str = "") -> list[str]:
+    """
+    Gera hashtags relevantes para a notícia usando LLM (Groq → Gemini → fallback estático).
+    Retorna lista de strings SEM o '#' (ex: ['Trump', 'Brasil', 'Tarifas']).
+    """
+    prompt = (
+        f"Gere de 8 a 12 hashtags relevantes para este vídeo de notícias no YouTube.\n"
+        f"As tags devem ajudar na descoberta do vídeo (SEO). Inclua:\n"
+        f"- Nomes de pessoas/organizações mencionadas\n"
+        f"- Temas centrais da notícia\n"
+        f"- Termos populares de busca relacionados\n"
+        f"- A categoria da notícia\n"
+        f"Retorne APENAS as hashtags separadas por vírgula, sem '#' e sem explicação.\n"
+        f"Exemplo: Trump, Brasil, Economia, Tarifas, Política Internacional\n\n"
+        f"Categoria: {category}\n"
+        f"Título: {title}\n"
+        f"Resumo: {summary[:500]}\n"
+    )
+
+    fallback = [category, "Notícias", "Brasil", "Shorts", "NewsApp"]
+
+    groq_key = os.getenv("GROQ_API_KEY")
+    if groq_key and groq_key != "cole_sua_chave_aqui":
+        try:
+            from groq import Groq
+            client = Groq(api_key=groq_key)
+            resp = client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.5,
+            )
+            raw = resp.choices[0].message.content.strip()
+            tags = [t.strip().lstrip("#") for t in raw.split(",") if t.strip()]
+            if tags:
+                return tags[:15]
+        except Exception as e:
+            print(f"  Tags via Groq falhou: {e}")
+
+    gemini_key = os.getenv("GEMINI_API_KEY", "")
+    if gemini_key:
+        try:
+            from google import genai
+            client = genai.Client(api_key=gemini_key)
+            resp = client.models.generate_content(model="gemini-2.0-flash", contents=prompt)
+            raw = resp.text.strip()
+            tags = [t.strip().lstrip("#") for t in raw.split(",") if t.strip()]
+            if tags:
+                return tags[:15]
+        except Exception as e:
+            print(f"  Tags via Gemini falhou: {e}")
+
+    return fallback
+
+
+# ---------------------------------------------------------------------------
 # Summarizer dedicado para Shorts (prompt mais conciso)
 # ---------------------------------------------------------------------------
 
-def _summarize_for_short(title: str, category: str, content: str) -> str | None:
+_VALID_CATEGORIES = {"Política", "Esporte", "Entretenimento", "Mercado Financeiro", "Tecnologia", "Policial"}
+
+def _summarize_for_short(title: str, category: str, content: str) -> tuple[str, str] | None:
     """
     Gera texto de até 400 palavras pra Shorts (até 3 min de fala).
     Cadeia: Groq (primário) → Gemini (fallback) → None.
 
-    Retorna None se NENHUM LLM funcionar — caller deve PULAR este Short
-    (não geramos vídeo lendo só o título).
+    Retorna (summary, categoria_corrigida) ou None se nenhum LLM funcionar.
     """
+    cats_str = ", ".join(sorted(_VALID_CATEGORIES))
     prompt = (
         f"Você é um apresentador de notícias no estilo TikTok/Shorts — direto, impactante e sem rodeios.\n"
-        f"Escreva UM parágrafo de até 400 palavras sobre a notícia abaixo, cobrindo os principais fatos.\n"
-        f"NÃO use markdown, asteriscos ou símbolos. Apenas texto simples em português.\n"
-        f"Comece com a frase mais impactante — prenda a atenção imediatamente.\n"
-        f"Encerre com uma síntese ou desdobramento esperado.\n\n"
-        f"Categoria: {category}\n"
+        f"Faça DUAS coisas:\n\n"
+        f"1. CATEGORIA CORRETA: analise o conteúdo e escolha a categoria que MELHOR descreve esta notícia dentre: {cats_str}.\n"
+        f"   A categoria sugerida foi '{category}', mas pode estar ERRADA. Corrija se necessário.\n"
+        f"   Responda a categoria na PRIMEIRA LINHA, no formato: CATEGORIA: <nome>\n\n"
+        f"2. RESUMO: escreva UM parágrafo de até 400 palavras cobrindo os principais fatos.\n"
+        f"   NÃO use markdown, asteriscos ou símbolos. Apenas texto simples em português.\n"
+        f"   Comece com a frase mais impactante — prenda a atenção imediatamente.\n"
+        f"   Encerre com uma síntese ou desdobramento esperado.\n\n"
         f"Título: {title}\n"
         f"Conteúdo: {content[:2500]}\n"
     )
+
+    def _parse_response(text: str) -> tuple[str, str]:
+        lines = text.strip().splitlines()
+        corrected_cat = category
+        summary_start = 0
+        if lines and lines[0].upper().startswith("CATEGORIA:"):
+            raw_cat = lines[0].split(":", 1)[1].strip()
+            for valid in _VALID_CATEGORIES:
+                if raw_cat.lower() == valid.lower():
+                    corrected_cat = valid
+                    break
+            summary_start = 1
+            while summary_start < len(lines) and not lines[summary_start].strip():
+                summary_start += 1
+        summary_text = " ".join(lines[summary_start:])
+        words = clean_text(summary_text).split()
+        return " ".join(words[:MAX_WORDS_SHORT]), corrected_cat
 
     # 1) Groq (primário)
     groq_key = os.getenv("GROQ_API_KEY")
@@ -83,9 +163,7 @@ def _summarize_for_short(title: str, category: str, content: str) -> str | None:
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.7,
             )
-            text = resp.choices[0].message.content.strip()
-            words = clean_text(text).split()
-            return " ".join(words[:MAX_WORDS_SHORT])
+            return _parse_response(resp.choices[0].message.content)
         except Exception as e:
             print(f"  Groq Shorts falhou: {e}. Tentando Gemini...")
 
@@ -96,13 +174,10 @@ def _summarize_for_short(title: str, category: str, content: str) -> str | None:
             from google import genai
             client = genai.Client(api_key=gemini_key)
             resp = client.models.generate_content(model="gemini-2.0-flash", contents=prompt)
-            text = resp.text.strip()
-            words = clean_text(text).split()
-            return " ".join(words[:MAX_WORDS_SHORT])
+            return _parse_response(resp.text)
         except Exception as e:
             print(f"  Gemini Shorts também falhou: {e}")
 
-    # Nenhum LLM funcionou — retorna None pra caller PULAR este Short
     print(f"  ❌ Nenhum LLM gerou resumo. Short será PULADO (não vamos ler só o título).")
     return None
 
@@ -265,6 +340,7 @@ async def generate_short_from_text(
     youtube_enabled: bool = True,
     tiktok_enabled: bool = True,
     link: str | None = None,
+    voice: str | None = None,
 ) -> tuple[str | None, bool]:
     """
     Gera um Short vertical 1080×1920 a partir de TEXTO PRONTO (sem chamar Gemini).
@@ -282,10 +358,14 @@ async def generate_short_from_text(
         hashtags: lista de hashtags YouTube (default = pacote genérico)
         playlist_key: chave da playlist no playlists.py ("noticias", "tech", etc)
         instagram_enabled: se False, NÃO posta no Instagram mesmo com config ativa
+        voice: voz Edge TTS explícita. Se None, resolve automaticamente por categoria
+               via CATEGORY_VOICES (config.py). Ex: "pt-BR-ThalitaNeural"
 
     Retorna o video_id do YouTube ou None se falhar.
     Retorna None ANTES de gerar nada se narration estiver vazia.
     """
+    from audio import voice_for_category
+
     # Bail-out: sem narração real, não geramos nada (não lemos só o título)
     if not narration or not narration.strip():
         print(f"  ⚠️  Narração vazia. Pulando Short '{title[:50]}'.")
@@ -294,19 +374,23 @@ async def generate_short_from_text(
     os.makedirs(SHORTS_OUTPUT_DIR, exist_ok=True)
     os.makedirs(AUDIO_OUTPUT_DIR, exist_ok=True)
 
+    # Resolve voz: parâmetro explícito > mapeamento por categoria > fallback global
+    selected_voice = voice or voice_for_category(category)
+
     # Limita narração ao máximo de palavras pro Short (~3 min)
     words = clean_text(narration).split()
     summary = " ".join(words[:MAX_WORDS_SHORT])
     narration_full = f"{title}. {summary}"
 
     print(f"\n  Short: {title[:60]}...")
+    print(f"  Voz: {selected_voice}")
 
     # 1. Áudio TTS
     print("  [1/3] Gerando áudio TTS...")
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     audio_filename = f"short_{ts}.mp3"
     audio_path = os.path.join(AUDIO_OUTPUT_DIR, audio_filename)
-    data = await _stream_to_bytes(narration_full)
+    data = await _stream_to_bytes(narration_full, voice=selected_voice)
     if not data:
         print("  TTS falhou — pulando.")
         return None
@@ -370,19 +454,21 @@ async def generate_short_from_text(
     if hashtags is None:
         hashtags = ["Shorts", "Notícias", "Brasil"]
 
+    context_tags = _generate_tags(title, category, summary)
+    all_tags = list(dict.fromkeys(hashtags + context_tags))
+    hash_line = " ".join(f"#{t}" for t in all_tags)
+
     yt_title = f"{title[:80]} #Shorts"
-    hash_line = " ".join(f"#{h}" for h in hashtags)
     link_bloco = ""
     if link:
         link_bloco = f"📎 Leia a notícia completa:\n{link}\n\n"
     yt_desc = (
-        f"{summary}\n\n"
         f"{link_bloco}"
         f"Fonte: {source}\n"
         f"📰 {CHANNEL_NAME}\n\n"
         f"{hash_line}"
     )
-    yt_tags = [h.lower() for h in hashtags] + [category.lower()]
+    yt_tags = [t.lower() for t in all_tags] + [category.lower()]
 
     video_id = None
     tiktok_ok = False
@@ -409,7 +495,7 @@ async def generate_short_from_text(
                 from instagram_uploader import upload_reel, INSTAGRAM_ENABLED
                 if INSTAGRAM_ENABLED:
                     ig_caption = (
-                        f"{title}\n\n{summary}\n\nFonte: {source}\n\n"
+                        f"{title}\n\nFonte: {source}\n\n"
                         f"{hash_line.lower()}"
                     )
                     upload_reel(output_path, ig_caption)
@@ -424,8 +510,8 @@ async def generate_short_from_text(
             if TIKTOK_UPLOAD:
                 from tiktok_publisher import upload_video as tk_upload, TIKTOK_ENABLED
                 if TIKTOK_ENABLED:
-                    tk_desc = f"{title}\n\n{summary}\n\nFonte: {source}"
-                    tk_hashtags = [h.lower() for h in hashtags]
+                    tk_desc = f"{title}\n\nFonte: {source}"
+                    tk_hashtags = [t.lower() for t in all_tags]
                     # asyncio.to_thread porque tiktok-uploader usa Playwright Sync
                     # internamente — não pode rodar dentro de asyncio loop ativo
                     if await asyncio.to_thread(tk_upload, output_path, tk_desc, tk_hashtags):
@@ -462,13 +548,18 @@ async def generate_short(item: dict, upload: bool = True, privacy: str = "public
 
     print(f"\n  Short: {title[:60]}...")
 
-    # 1. Resumo curto
+    # 1. Resumo curto + validação de categoria
     print("  [1/4] Resumindo para Shorts...")
-    summary = _summarize_for_short(title, category, content)
-    if summary is None:
+    result = _summarize_for_short(title, category, content)
+    if result is None:
         print(f"  ⚠️  Sem resumo de LLM. PULANDO este Short (não geramos vídeo só com título).")
         return None
-    narration = f"{title}. {summary}"
+    summary, corrected_category = result
+    if corrected_category != category:
+        print(f"  📌 Categoria corrigida: {category} → {corrected_category}")
+        category = corrected_category
+        item["category"] = corrected_category
+    narration = f"{title}. {summary}. Gostou da notícia? Curta e compartilhe!"
 
     # 2. Áudio TTS
     print("  [2/4] Gerando áudio TTS...")
@@ -532,13 +623,15 @@ async def generate_short(item: dict, upload: bool = True, privacy: str = "public
         from uploader import upload_video
         from playlists import add_to_playlist
         yt_title = f"{title[:80]} #Shorts"
+        context_tags = _generate_tags(title, category, summary)
+        all_tags = list(dict.fromkeys(["Shorts", "Notícias", "Brasil"] + context_tags))
+        hash_line = " ".join(f"#{t}" for t in all_tags)
         yt_desc = (
-            f"{summary}\n\n"
             f"Fonte: {source}\n"
-            f"📰 {CHANNEL_NAME} — notícias rápidas em formato Shorts\n\n"
-            "#Shorts #Notícias #Brasil #NewsApp"
+            f"📰 {CHANNEL_NAME}\n\n"
+            f"{hash_line}"
         )
-        yt_tags = ["shorts", "notícias", "brasil", "resumo", category.lower(), "newsapp"]
+        yt_tags = [t.lower() for t in all_tags]
         try:
             video_id = upload_video(output_path, yt_title, yt_desc, yt_tags, privacy=privacy)
             print(f"  YouTube Shorts: https://youtu.be/{video_id}")
@@ -551,9 +644,8 @@ async def generate_short(item: dict, upload: bool = True, privacy: str = "public
                 if INSTAGRAM_ENABLED:
                     ig_caption = (
                         f"{title}\n\n"
-                        f"{summary}\n\n"
                         f"Fonte: {source}\n\n"
-                        f"#noticias #brasil #newsapp #{category.lower().replace(' ', '')}"
+                        f"{hash_line.lower()}"
                     )
                     upload_reel(output_path, ig_caption)
 
@@ -562,8 +654,8 @@ async def generate_short(item: dict, upload: bool = True, privacy: str = "public
             if TIKTOK_UPLOAD:
                 from tiktok_publisher import upload_video as tiktok_upload, TIKTOK_ENABLED
                 if TIKTOK_ENABLED:
-                    tk_hashtags = ["noticias", "brasil", "newsapp", category.lower().replace(" ", "")]
-                    tk_desc = f"{title}\n\n{summary}\n\nFonte: {source}"
+                    tk_hashtags = [t.lower() for t in all_tags]
+                    tk_desc = f"{title}\n\nFonte: {source}"
                     # asyncio.to_thread — Playwright Sync NÃO funciona dentro do asyncio loop
                     await asyncio.to_thread(tiktok_upload, output_path, tk_desc, tk_hashtags)
 
@@ -674,13 +766,17 @@ def generate_short_from_video(
 
     # Upload do Short
     category = items[0].get("category", "Notícias") if items else "Notícias"
+    items_summary = " ".join(it.get("title", "") for it in items[:3])
+    context_tags = _generate_tags(title, category, items_summary)
+    all_tags = list(dict.fromkeys(["Shorts", "Notícias", "Brasil"] + context_tags))
+    hash_line = " ".join(f"#{t}" for t in all_tags)
+
     yt_title = f"{title[:80]} #Shorts"
     yt_desc = (
-        f"Trecho do resumo de notícias — {datetime.now().strftime('%d/%m/%Y')}\n\n"
-        + "\n".join(f"• {it.get('title', '')}" for it in items[:3])
-        + f"\n\n📰 {CHANNEL_NAME}\n#Shorts #Notícias #Brasil"
+        f"📰 {CHANNEL_NAME} — {datetime.now().strftime('%d/%m/%Y')}\n\n"
+        f"{hash_line}"
     )
-    yt_tags = ["shorts", "notícias", "brasil", "resumo", category.lower()]
+    yt_tags = [t.lower() for t in all_tags]
 
     try:
         video_id = upload_video(output_path, yt_title, yt_desc, yt_tags, privacy=privacy)
@@ -693,9 +789,7 @@ def generate_short_from_video(
             from instagram_uploader import upload_reel, INSTAGRAM_ENABLED
             if INSTAGRAM_ENABLED:
                 ig_caption = (
-                    f"{title}\n\n"
-                    + "\n".join(f"- {it.get('title', '')}" for it in items[:3])
-                    + f"\n\n#noticias #brasil #newsapp #resumo"
+                    f"{title}\n\n{hash_line.lower()}"
                 )
                 upload_reel(output_path, ig_caption)
 
@@ -704,11 +798,8 @@ def generate_short_from_video(
         if TIKTOK_UPLOAD:
             from tiktok_publisher import upload_video as tiktok_upload, TIKTOK_ENABLED
             if TIKTOK_ENABLED:
-                tk_desc = (
-                    f"{title}\n\n"
-                    + "\n".join(f"- {it.get('title', '')}" for it in items[:3])
-                )
-                tk_hashtags = ["noticias", "brasil", "newsapp", "resumo"]
+                tk_desc = f"{title}"
+                tk_hashtags = [t.lower() for t in all_tags]
                 tiktok_upload(output_path, tk_desc, tk_hashtags)
 
         try:
@@ -863,15 +954,19 @@ def generate_shorts_per_category(
         if not upload:
             continue
 
+        # Gera tags contextuais para este Short
+        item_summary = item.get("ai_summary", "") or item.get("_content", "") or title
+        context_tags = _generate_tags(title, category, item_summary)
+        all_tags = list(dict.fromkeys(["Shorts", "Notícias", "Brasil", category.replace(" ", "")] + context_tags))
+        hash_line = " ".join(f"#{t}" for t in all_tags)
+
         # Upload nas 3 plataformas
         yt_title = f"{category}: {title[:70]} #Shorts"
         yt_desc = (
-            f"{category} — {date_str}\n\n"
-            f"{title}\n\n"
-            f"📰 {CHANNEL_NAME} — resumo diário\n"
-            f"#Shorts #Notícias #Brasil #{category.replace(' ', '')}"
+            f"📰 {CHANNEL_NAME} — {date_str}\n\n"
+            f"{hash_line}"
         )
-        yt_tags = ["shorts", "notícias", "brasil", "resumo", category.lower()]
+        yt_tags = [t.lower() for t in all_tags]
 
         # YouTube — falha aqui NÃO cancela Instagram nem TikTok
         try:
@@ -895,8 +990,7 @@ def generate_shorts_per_category(
                 from instagram_uploader import upload_reel, INSTAGRAM_ENABLED
                 if INSTAGRAM_ENABLED:
                     ig_caption = (
-                        f"{category}\n\n{title}\n\n"
-                        f"#noticias #brasil #newsapp #{category.replace(' ', '').lower()}"
+                        f"{title}\n\n{hash_line.lower()}"
                     )
                     upload_reel(output_path, ig_caption)
                     stats["instagram_ok"] += 1
@@ -912,8 +1006,8 @@ def generate_shorts_per_category(
             if TIKTOK_UPLOAD:
                 from tiktok_publisher import upload_video as tiktok_upload, TIKTOK_ENABLED
                 if TIKTOK_ENABLED:
-                    tk_desc = f"{category}\n\n{title}"
-                    tk_hashtags = ["noticias", "brasil", "newsapp", category.lower().replace(" ", "")]
+                    tk_desc = f"{title}"
+                    tk_hashtags = [t.lower() for t in all_tags]
                     if tiktok_upload(output_path, tk_desc, tk_hashtags):
                         stats["tiktok_ok"] += 1
                     else:
