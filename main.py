@@ -276,6 +276,11 @@ async def run_news_cycle(on_progress=None):
             print(f"  ❌ Erro no Short {i} ({cat}): {e}")
             resultados.append((cat, None))
 
+        # Espaçamento entre Shorts para não canibalizar o alcance no algoritmo
+        if i < len(items_com_narracao):
+            print(f"\n  ⏳ Aguardando 10 min antes do próximo Short ({i+1}/{len(items_com_narracao)})...")
+            await asyncio.sleep(600)
+
     print(f"\n{_elapsed()} [FASE 4] OK em {int(time.time()-phase_start)}s")
 
     # ---------- Resumo final + notificação ----------
