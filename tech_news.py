@@ -29,7 +29,7 @@ from fetcher import (
     extract_article_content,
     _BROWSER_HEADERS,
 )
-from summarizer import summarize_news_batch
+from summarizer import summarize_news_batch, select_top_n_relevant
 
 # Logging
 _LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
@@ -57,6 +57,7 @@ def print(*args, **kwargs):  # noqa: A001
 
 YOUTUBE_UPLOAD = True
 YOUTUBE_PUBLISH_NOW = True
+APENAS_YOUTUBE = False
 MAX_TECH_SHORTS_PER_RUN = 5
 
 
@@ -163,8 +164,18 @@ async def run_tech_news(on_progress=None):
         print("Nenhuma notícia encontrada. Abortando.")
         return None
 
-    items = raw_items[:MAX_TECH_SHORTS_PER_RUN]
-    print(f"  {len(raw_items)} candidatas → {len(items)} selecionadas")
+    # 1.5. Trending topics + seleção por relevância
+    print("\n[1.5/3] Coletando trending topics e selecionando mais relevantes...")
+    trending = None
+    try:
+        from trends import get_trending_topics
+        trending = get_trending_topics(use_cache=True)
+        print(f"  Trending OK — {len(trending.get('twitter', []))} Twitter | {len(trending.get('google', []))} Google")
+    except Exception as e:
+        print(f"  Trending falhou (não crítico): {e}")
+
+    items = select_top_n_relevant("Tecnologia", raw_items, MAX_TECH_SHORTS_PER_RUN, trending=trending)
+    print(f"  {len(raw_items)} candidatas → {len(items)} selecionadas por relevância")
 
     # 2. Extrair conteúdo + resumir via Groq → Gemini
     print(f"\n[2/3] Extraindo conteúdo e resumindo ({len(items)} notícias)...")
@@ -287,13 +298,16 @@ async def run_tech_news(on_progress=None):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(prog="tech_news.py", add_help=False)
-    parser.add_argument("--sem-upload", action="store_true")
-    parser.add_argument("--privado", action="store_true")
+    parser.add_argument("--sem-upload",      action="store_true")
+    parser.add_argument("--privado",         action="store_true")
+    parser.add_argument("--apenas-youtube",  action="store_true")
     args, _ = parser.parse_known_args()
 
     if args.sem_upload:
         YOUTUBE_UPLOAD = False
     if args.privado:
         YOUTUBE_PUBLISH_NOW = False
+    if args.apenas_youtube:
+        APENAS_YOUTUBE = True
 
     asyncio.run(run_tech_news())

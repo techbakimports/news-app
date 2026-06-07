@@ -36,6 +36,7 @@ from fetcher import (
     extract_article_content,
     _BROWSER_HEADERS,
 )
+from summarizer import select_top_n_relevant
 
 
 # -- Logging -------------------------------------------------------------------
@@ -244,8 +245,18 @@ async def run_celebridades(on_progress=None, max_shorts: int | None = None) -> l
             pass
         return []
 
-    items = raw_items[:limite]
-    print(f"  {len(raw_items)} candidatas → {len(items)} selecionadas (limite={limite})")
+    # 1.5. Trending topics + seleção por relevância
+    print("\n[1.5/3] Coletando trending topics e selecionando mais relevantes...")
+    trending = None
+    try:
+        from trends import get_trending_topics
+        trending = get_trending_topics(use_cache=True)
+        print(f"  Trending OK — {len(trending.get('twitter', []))} Twitter | {len(trending.get('google', []))} Google")
+    except Exception as e:
+        print(f"  Trending falhou (não crítico): {e}")
+
+    items = select_top_n_relevant("Celebridades", raw_items, limite, trending=trending)
+    print(f"  {len(raw_items)} candidatas → {len(items)} selecionadas por relevância (limite={limite})")
 
     # 2. Extrair conteúdo + resumir
     print(f"\n[2/3] Extraindo conteúdo e resumindo ({len(items)} notícias)...")

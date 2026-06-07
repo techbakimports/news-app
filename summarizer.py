@@ -273,6 +273,122 @@ def select_most_relevant(
     return candidates[0]
 
 
+def select_top_n_relevant(
+    category: str,
+    candidates: list[dict],
+    n: int,
+    trending: dict | None = None,
+) -> list[dict]:
+    """
+    Seleciona os N itens mais relevantes de uma lista de candidatos para uma
+    categoria usando LLM (Groq → Gemini → fallback).
+
+    Retorna lista ordenada por relevância (mais relevante primeiro).
+    Se N >= len(candidates), retorna todos.
+    """
+    if len(candidates) <= n:
+        return candidates
+
+    import time as _time
+    now_ts = _time.time()
+
+    def _age_label(item: dict) -> str:
+        pp = item.get("_published_parsed")
+        if not pp:
+            return "?"
+        age_h = (now_ts - _time.mktime(pp)) / 3600
+        if age_h < 1:
+            return f"{int(age_h * 60)}min atrás"
+        return f"{age_h:.1f}h atrás"
+
+    titulos = "\n".join(
+        f"{i+1}. [{item.get('source', '?')}] [{_age_label(item)}] {item['title']}"
+        for i, item in enumerate(candidates)
+    )
+
+    trending_ctx = ""
+    if trending:
+        tw  = trending.get("twitter", [])[:15]
+        gg  = trending.get("google",  [])[:10]
+        kws = trending.get("keywords", [])[:20]
+        partes = []
+        if tw:
+            partes.append(f"Twitter BR: {', '.join(tw)}")
+        if gg:
+            partes.append(f"Google BR: {', '.join(gg)}")
+        if kws:
+            partes.append(f"Keywords em alta: {', '.join(kws)}")
+        if partes:
+            trending_ctx = (
+                "\n\nCONTEXTO — O que está em alta nas redes sociais agora:\n"
+                + "\n".join(partes)
+                + "\n\nUse esse contexto para PRIORIZAR notícias cujo assunto "
+                "coincide com o que está sendo debatido nas redes."
+            )
+
+    prompt = (
+        f"Você é um editor de conteúdo digital brasileiro especializado em '{category}'. "
+        f"Da lista abaixo, escolha as {n} MELHORES para viralizar como Short hoje.\n\n"
+        f"Critérios com PESO IGUAL (combine recência e relevância):\n"
+        f"RECÊNCIA   — prefira notícias publicadas há menos tempo (tempo entre colchetes)\n"
+        f"RELEVÂNCIA — assunto em alta nas redes, impacto amplo, breaking news, potencial viral\n"
+        f"DESCARTE   — notícias antigas (>6h) só entram se forem muito mais relevantes que as recentes\n"
+        f"{trending_ctx}\n\n"
+        f"Notícias (formato: número. [fonte] [idade] título):\n{titulos}\n\n"
+        f"Responda APENAS com os {n} números separados por vírgula, em ordem decrescente de qualidade "
+        f"(melhor primeiro). Ex: 3,1,5. Sem explicação, sem texto adicional."
+    )
+
+    def _parse_indices(text: str) -> list[int] | None:
+        nums = re.findall(r"\b([1-9]\d*)\b", text.strip())
+        indices = []
+        seen = set()
+        for s in nums:
+            idx = int(s) - 1
+            if 0 <= idx < len(candidates) and idx not in seen:
+                seen.add(idx)
+                indices.append(idx)
+        return indices if indices else None
+
+    # 1) Groq primário
+    if groq_key:
+        try:
+            from groq import Groq
+            client = Groq(api_key=groq_key)
+            resp = client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.2,
+                max_tokens=30,
+            )
+            indices = _parse_indices(resp.choices[0].message.content)
+            if indices:
+                result = [candidates[i] for i in indices[:n]]
+                titles = " | ".join(c["title"][:40] for c in result)
+                print(f"  [Groq] Top {n} em '{category}': {titles}")
+                return result
+        except Exception as e:
+            print(f"  [select_top_n_relevant] Groq falhou: {e}. Tentando Gemini...")
+
+    # 2) Gemini fallback
+    try:
+        client = _get_gemini_client()
+        if client:
+            response = client.models.generate_content(model="gemini-2.0-flash", contents=prompt)
+            indices = _parse_indices(response.text)
+            if indices:
+                result = [candidates[i] for i in indices[:n]]
+                titles = " | ".join(c["title"][:40] for c in result)
+                print(f"  [Gemini] Top {n} em '{category}': {titles}")
+                return result
+    except Exception as e:
+        print(f"  [select_top_n_relevant] Gemini falhou: {e}.")
+
+    # 3) Fallback — primeiros N por ordem de chegada (mais recentes)
+    print(f"  [select_top_n_relevant] LLM indisponível — usando primeiros {n} de '{category}'")
+    return candidates[:n]
+
+
 def summarize_news_for_short(category: str, title: str, content: str) -> tuple[str, str] | None:
     """
     Gera narração longa (~350-400 palavras, ~3 min) pra Short de notícia.
