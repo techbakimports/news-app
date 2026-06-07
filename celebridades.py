@@ -258,6 +258,16 @@ async def run_celebridades(on_progress=None, max_shorts: int | None = None) -> l
             pass
         return []
 
+    # Filtra itens já postados nas últimas 48h
+    from history import filter_not_posted, mark_as_posted
+    raw_items, n_skip = filter_not_posted(raw_items)
+    if n_skip:
+        print(f"  {n_skip} item(s) ignorado(s) — já postados nas últimas 48h")
+
+    if not raw_items:
+        print("Todas as notícias já foram postadas recentemente. Abortando.")
+        return []
+
     # 1.5. Trending topics + seleção por relevância
     print("\n[1.5/3] Coletando trending topics e selecionando mais relevantes...")
     trending = None
@@ -374,6 +384,7 @@ async def run_celebridades(on_progress=None, max_shorts: int | None = None) -> l
             if video_id:
                 uploaded_ids.append(video_id)
                 print(f"  ✅ https://youtu.be/{video_id}")
+                mark_as_posted(title, pipeline="celebridades")
         except Exception as e:
             print(f"  Erro no Short {i}: {e}")
 

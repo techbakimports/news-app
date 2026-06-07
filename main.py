@@ -133,6 +133,12 @@ async def run_news_cycle(on_progress=None):
     items_unicos = select_unique_news(raw_news)
     print(f"{_elapsed()} [FASE 2] {len(items_unicos)} únicas após dedup")
 
+    # Filtra itens já postados nas últimas 48h
+    from history import filter_not_posted, mark_as_posted
+    items_unicos, n_skip = filter_not_posted(items_unicos)
+    if n_skip:
+        print(f"{_elapsed()} [FASE 2] {n_skip} item(s) ignorado(s) — já postados nas últimas 48h")
+
     # Agrupa TODOS os candidatos por categoria
     pool_por_categoria: dict[str, list] = {}
     for item in items_unicos:
@@ -271,6 +277,8 @@ async def run_news_cycle(on_progress=None):
                 instagram_enabled=False,
                 link=item.get("link"),
             )
+            if video_id:
+                mark_as_posted(item["title"], pipeline="noticias")
             resultados.append((cat, video_id))
         except Exception as e:
             print(f"  ❌ Erro no Short {i} ({cat}): {e}")
