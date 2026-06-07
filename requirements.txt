@@ -21,6 +21,9 @@ scipy
 groq
 instagrapi
 
+# Trending topics (trends.py)
+pytrends          # Google Trends BR — pip install pytrends
+
 # TikTok (precisa do Google Chrome instalado no sistema — ver install_system_deps.sh)
 tiktok-uploader
 
