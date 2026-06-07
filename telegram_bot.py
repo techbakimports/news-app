@@ -229,29 +229,51 @@ def _remover_agendamento(tipo: str) -> None:
 
 def kb_main() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📰 Notícias",            callback_data="nav|noticias")],
+        [InlineKeyboardButton("🎬 Vídeo Longo",          callback_data="nav|video_longo")],
+        [InlineKeyboardButton("📱 Shorts",               callback_data="nav|shorts_menu")],
         [InlineKeyboardButton("🎵 Áudio Longo",          callback_data="nav|audio")],
-        [InlineKeyboardButton("📱 Shorts",               callback_data="nav|shorts")],
         [InlineKeyboardButton("⏰ Agendamento",           callback_data="nav|agenda")],
         [InlineKeyboardButton("📂 Organizar Playlists",  callback_data="run|playlists")],
-        [InlineKeyboardButton("📸 Status Instagram",     callback_data="nav|instagram")],
-        [InlineKeyboardButton("🎵 Status TikTok",        callback_data="nav|tiktok")],
-        [InlineKeyboardButton("🔬 Tech Digest",          callback_data="run|tech_digest")],
-        [InlineKeyboardButton("💻 Tech Shorts",          callback_data="nav|tech_news")],
-        [InlineKeyboardButton("🧠 Curiosidades",         callback_data="nav|curiosidades")],
         [InlineKeyboardButton("📊 Status Gemini",        callback_data="run|gemini_check")],
     ])
 
 
-def kb_noticias() -> InlineKeyboardMarkup:
+def kb_video_longo() -> InlineKeyboardMarkup:
+    """Submenu de Vídeo Longo — 4 nichos."""
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("▶️ YouTube + TikTok (público)",   callback_data="run|noticias|pub_ambos")],
-        [InlineKeyboardButton("📺 Apenas YouTube (público)",     callback_data="run|noticias|pub_yt")],
-        [InlineKeyboardButton("🎵 Apenas TikTok",                callback_data="run|noticias|pub_tk")],
-        [InlineKeyboardButton("🔒 YouTube privado (+TikTok)",    callback_data="run|noticias|priv_ambos")],
-        [InlineKeyboardButton("💾 Só gerar (sem upload)",        callback_data="run|noticias|local")],
-        [InlineKeyboardButton("⬅️ Voltar",                       callback_data="nav|main")],
+        [InlineKeyboardButton("📰 Notícias",    callback_data="nav|vl|noticias")],
+        [InlineKeyboardButton("🧠 Curiosidades",callback_data="nav|vl|curiosidades")],
+        [InlineKeyboardButton("🌟 Celebridades",callback_data="nav|vl|celebridades")],
+        [InlineKeyboardButton("💻 Tecnologia",  callback_data="nav|vl|tecnologia")],
+        [InlineKeyboardButton("⬅️ Voltar",      callback_data="nav|main")],
     ])
+
+
+def kb_shorts_menu() -> InlineKeyboardMarkup:
+    """Submenu de Shorts — 4 nichos."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📰 Notícias",    callback_data="nav|sh|noticias")],
+        [InlineKeyboardButton("🧠 Curiosidades",callback_data="nav|sh|curiosidades")],
+        [InlineKeyboardButton("🌟 Celebridades",callback_data="nav|sh|celebridades")],
+        [InlineKeyboardButton("💻 Tecnologia",  callback_data="nav|sh|tecnologia")],
+        [InlineKeyboardButton("⬅️ Voltar",      callback_data="nav|main")],
+    ])
+
+
+def kb_nicho_yt(nicho: str, back: str) -> InlineKeyboardMarkup:
+    """Opções YouTube-only para um nicho (Shorts ou Vídeo Longo)."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("▶️ Publicar YouTube (público)",  callback_data=f"run|sh|{nicho}|pub")],
+        [InlineKeyboardButton("🔒 Publicar YouTube (privado)",  callback_data=f"run|sh|{nicho}|priv")],
+        [InlineKeyboardButton("💾 Só gerar (sem upload)",       callback_data=f"run|sh|{nicho}|local")],
+        [InlineKeyboardButton("⬅️ Voltar",                      callback_data=back)],
+    ])
+
+
+# ── teclados legado (mantidos para compatibilidade com callbacks antigos) ──
+
+def kb_noticias() -> InlineKeyboardMarkup:
+    return kb_nicho_yt("noticias", "nav|shorts_menu")
 
 
 def kb_tech_news() -> InlineKeyboardMarkup:
@@ -264,14 +286,7 @@ def kb_tech_news() -> InlineKeyboardMarkup:
 
 
 def kb_curiosidades() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("▶️ YouTube + TikTok (público)",   callback_data="run|curiosidades|pub_ambos")],
-        [InlineKeyboardButton("📺 Apenas YouTube (público)",     callback_data="run|curiosidades|pub_yt")],
-        [InlineKeyboardButton("🎵 Apenas TikTok",                callback_data="run|curiosidades|pub_tk")],
-        [InlineKeyboardButton("🔒 YouTube privado (+TikTok)",    callback_data="run|curiosidades|priv_ambos")],
-        [InlineKeyboardButton("💾 Só gerar (sem upload)",        callback_data="run|curiosidades|local")],
-        [InlineKeyboardButton("⬅️ Voltar",                       callback_data="nav|main")],
-    ])
+    return kb_nicho_yt("curiosidades", "nav|shorts_menu")
 
 
 def kb_audio_tipo_run() -> InlineKeyboardMarkup:
@@ -714,87 +729,110 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     # ── navegação ──────────────────────────────────────────────────────────────
     if action == "nav":
-        dest = parts[1]
+        dest = parts[1] if len(parts) > 1 else "main"
+
+        # ── menu principal ────────────────────────────────────────────────────
         if dest == "main":
             await q.edit_message_text(
                 "🤖 <b>Youtuber no Automático</b>\nEscolha uma opção:",
                 reply_markup=kb_main(), parse_mode="HTML",
             )
-        elif dest == "noticias":
+
+        # ── vídeo longo — seleção de nicho ────────────────────────────────────
+        elif dest == "video_longo":
             await q.edit_message_text(
-                "📰 <b>Notícias</b>\n\n"
-                "<b>Pipeline gera 4 Shorts (1 por categoria):</b>\n"
-                "• 🏛️ Política\n"
-                "• 🎬 Entretenimento\n"
-                "• 💰 Mercado Financeiro\n"
-                "• 👮 Policial\n\n"
-                "Cada Short ~3 min com CTA + Pexels.\n"
-                "<i>Escolha a plataforma:</i>",
-                reply_markup=kb_noticias(), parse_mode="HTML",
+                "🎬 <b>Vídeo Longo</b>\n\nEscolha o nicho:",
+                reply_markup=kb_video_longo(), parse_mode="HTML",
             )
+
+        # ── vídeo longo — nichos individuais (em desenvolvimento) ─────────────
+        elif dest == "vl":
+            nicho = parts[2] if len(parts) > 2 else ""
+            _NOMES = {
+                "noticias":    "📰 Notícias",
+                "curiosidades":"🧠 Curiosidades",
+                "celebridades":"🌟 Celebridades",
+                "tecnologia":  "💻 Tecnologia",
+            }
+            nome = _NOMES.get(nicho, nicho.title())
+            await q.edit_message_text(
+                f"🎬 <b>Vídeo Longo — {nome}</b>\n\n"
+                "🚧 <i>Pipeline de vídeo longo em desenvolvimento.\n"
+                "Em breve disponível aqui!</i>",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("⬅️ Voltar", callback_data="nav|video_longo")],
+                ]),
+                parse_mode="HTML",
+            )
+
+        # ── shorts — seleção de nicho ─────────────────────────────────────────
+        elif dest == "shorts_menu":
+            await q.edit_message_text(
+                "📱 <b>Shorts</b>\n\nEscolha o nicho:",
+                reply_markup=kb_shorts_menu(), parse_mode="HTML",
+            )
+
+        # ── shorts — nichos individuais ───────────────────────────────────────
+        elif dest == "sh":
+            nicho = parts[2] if len(parts) > 2 else ""
+            _INFO = {
+                "noticias":     ("📰 Notícias",     "1 Short por categoria (Política, Policial, Mercado, Entretenimento, Celebridades)\nVoz por categoria · Groq → Gemini · Pexels"),
+                "curiosidades": ("🧠 Curiosidades",  "1 Short com curiosidade aleatória gerada pelo Gemini\nTema sempre novo · Voz: Francisca · ~2m30s"),
+                "celebridades": ("🌟 Celebridades",  "Até 3 Shorts de fofoca dos 13 portais BR\nVoz: Thalita · Tom gossip · Groq → Gemini"),
+                "tecnologia":   ("💻 Tecnologia",    "Até 5 Shorts de tech via Google News\nVoz: Francisca · Groq → Gemini"),
+            }
+            nome, desc = _INFO.get(nicho, (nicho.title(), ""))
+            await q.edit_message_text(
+                f"📱 <b>Shorts — {nome}</b>\n\n{desc}\n\n<i>Publicação:</i>",
+                reply_markup=kb_nicho_yt(nicho, "nav|shorts_menu"),
+                parse_mode="HTML",
+            )
+
+        # ── áudio longo ───────────────────────────────────────────────────────
         elif dest == "audio":
             await q.edit_message_text(
                 "🎵 <b>Áudio Longo</b> — Tipo de som:",
                 reply_markup=kb_audio_tipo_run(), parse_mode="HTML",
             )
+
+        # ── legado (callbacks antigos ainda podem chegar) ─────────────────────
         elif dest == "shorts":
             await q.edit_message_text("📱 <b>Shorts</b>", reply_markup=kb_shorts(), parse_mode="HTML")
+        elif dest == "noticias":
+            await q.edit_message_text(
+                "📰 <b>Notícias</b>",
+                reply_markup=kb_noticias(), parse_mode="HTML",
+            )
         elif dest == "tech_news":
             await q.edit_message_text(
-                "💻 <b>Tech Shorts</b>\n\n"
-                "<b>Pipeline gera APENAS Shorts:</b>\n"
-                "• Google News busca top tópicos em 10 sites tech\n"
-                "• Groq resume (fallback Gemini)\n"
-                "• 1 Short vertical por tópico\n"
-                "• Upload: YouTube + TikTok\n"
-                "• <i>Sem vídeo longo</i>",
+                "💻 <b>Tech Shorts</b>",
                 reply_markup=kb_tech_news(), parse_mode="HTML",
             )
         elif dest == "curiosidades":
             await q.edit_message_text(
-                "🧠 <b>Curiosidades</b>\n\n"
-                "<b>Pipeline gera 1 Short:</b>\n"
-                "• Groq/Gemini sorteia tema novo (ciência, história, espaço…)\n"
-                "• Escreve curiosidade densa (~2m30s) + CTA\n"
-                "• <b>Escolha a plataforma:</b> YouTube, TikTok ou ambos\n"
-                "• <i>Histórico evita repetir tema</i>",
+                "🧠 <b>Curiosidades</b>",
                 reply_markup=kb_curiosidades(), parse_mode="HTML",
             )
+
+        # ── agendamento ───────────────────────────────────────────────────────
         elif dest == "agenda":
             await q.edit_message_text("⏰ <b>Agendamento</b>", reply_markup=kb_agenda(), parse_mode="HTML")
+
+        # ── instagram / tiktok (status, mantido pra quem ainda usa) ──────────
         elif dest == "instagram":
             from instagram_uploader import INSTAGRAM_ENABLED
-            if INSTAGRAM_ENABLED:
-                status = "✅ <b>ATIVO</b> — credenciais configuradas"
-                detail = "\nPosts automáticos:\n• Shorts → Reel\n• Notícias → Thumbnail no feed"
-            else:
-                status = "❌ <b>INATIVO</b>"
-                detail = "\nAdicione no .env:\n<code>INSTAGRAM_USERNAME=\nINSTAGRAM_PASSWORD=</code>"
+            status = "✅ <b>ATIVO</b>" if INSTAGRAM_ENABLED else "❌ <b>INATIVO</b>"
             await q.edit_message_text(
-                f"📸 Instagram\n\n{status}{detail}",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("⬅️ Voltar", callback_data="nav|main")],
-                ]),
+                f"📸 Instagram\n\n{status}",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Voltar", callback_data="nav|main")]]),
                 parse_mode="HTML",
             )
         elif dest == "tiktok":
             from tiktok_publisher import TIKTOK_ENABLED
-            if TIKTOK_ENABLED:
-                status = "✅ <b>ATIVO</b> — cookies configurados"
-                detail = "\nPosts automáticos:\n• Shorts → Vídeo no TikTok"
-            else:
-                status = "❌ <b>INATIVO</b>"
-                detail = (
-                    "\nPara ativar:"
-                    "\n1. Login no TikTok pelo browser"
-                    "\n2. Exporte cookies (extensão Get cookies.txt LOCALLY)"
-                    "\n3. Salve em <code>credentials/tiktok_cookies.json</code>"
-                )
+            status = "✅ <b>ATIVO</b>" if TIKTOK_ENABLED else "❌ <b>INATIVO</b> (desativado)"
             await q.edit_message_text(
-                f"🎵 TikTok\n\n{status}{detail}",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("⬅️ Voltar", callback_data="nav|main")],
-                ]),
+                f"🎵 TikTok\n\n{status}",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Voltar", callback_data="nav|main")]]),
                 parse_mode="HTML",
             )
         return
@@ -999,6 +1037,10 @@ def _get_pipeline_info(parts: list):
         return ("tech_news", parts[1] != "local")
     elif tipo == "curiosidades" and len(parts) > 1:
         return ("curiosidades", parts[1] != "local")
+    elif tipo == "celebridades" and len(parts) > 1:
+        return ("celebridades", parts[1] != "local")
+    elif tipo == "sh" and len(parts) > 2:
+        return (parts[1], parts[2] != "local")  # nicho, upload?
     elif tipo == "audio" and len(parts) > 3:
         return ("audio", parts[3] != "local")
     elif tipo == "shorts" and len(parts) > 2:
@@ -1011,7 +1053,7 @@ async def _handle_run(q, context, parts: list, force: bool = False) -> None:
     chat_id = q.message.chat_id
 
     # ── bloqueio de concorrência (evita acumular processos) ──────────────────
-    if tipo in ("noticias", "tech_news", "curiosidades", "audio", "shorts") and _active_pipelines > 0:
+    if tipo in ("noticias", "tech_news", "curiosidades", "celebridades", "audio", "shorts", "sh") and _active_pipelines > 0:
         text = (
             f"⚠️ Já {'existe' if _active_pipelines == 1 else 'existem'} "
             f"<b>{_active_pipelines}</b> pipeline(s) em execução.\n\n"
@@ -1100,6 +1142,37 @@ async def _handle_run(q, context, parts: list, force: bool = False) -> None:
         elif visib == "pub":
             descricao_extra = "YouTube + TikTok"
         descricao = f"Notícias → {descricao_extra}"
+        asyncio.create_task(_run_pipeline(chat_id, context.bot, cmd, descricao, q.message))
+        return
+
+    # -- shorts por nicho (novo menu) --
+    # callback: run|sh|{nicho}|{visib}   visib: pub | priv | local
+    if tipo == "sh":
+        nicho, visib = parts[1], parts[2]
+        _SCRIPTS = {
+            "noticias":     "main.py",
+            "curiosidades": "curiosidades.py",
+            "celebridades": "celebridades.py",
+            "tecnologia":   "tech_news.py",
+        }
+        _NOMES = {
+            "noticias":     "Notícias",
+            "curiosidades": "Curiosidades",
+            "celebridades": "Celebridades",
+            "tecnologia":   "Tecnologia",
+        }
+        script = _SCRIPTS.get(nicho)
+        if not script:
+            await q.edit_message_text(f"❌ Nicho desconhecido: {nicho}")
+            return
+        cmd = [PYTHON, str(BASE_DIR / script), "--apenas-youtube"]
+        if visib == "priv":
+            cmd.append("--privado")
+        elif visib == "local":
+            cmd.remove("--apenas-youtube")
+            cmd.append("--sem-upload")
+        visib_label = {"pub": "YouTube público", "priv": "YouTube privado", "local": "sem upload"}.get(visib, visib)
+        descricao = f"{_NOMES.get(nicho, nicho)} → {visib_label}"
         asyncio.create_task(_run_pipeline(chat_id, context.bot, cmd, descricao, q.message))
         return
 
