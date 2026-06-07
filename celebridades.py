@@ -144,7 +144,23 @@ def _fetch_celebridades(limit_per_site: int = 5) -> list[dict]:
 
     # Ordena por mais recente
     unique.sort(key=lambda x: x.get("_published_parsed") or (0,), reverse=True)
-    print(f"  {len(items)} brutas → {len(unique)} únicas após dedup")
+
+    # Pré-filtro: remove resultados esportivos (placar, partida, jogo)
+    _SPORTS_BLACKLIST = {
+        "vence", "empata", "derrota", "placar", "gol", "gols", "partida",
+        "amistoso", "eliminado", "eliminação", "semifinal", "quartas",
+        "classificação", "escalação", "lesão", "convocação", "convocado",
+        "campeonato", "torneio", "liga", "rodada", "tabela",
+    }
+    antes = len(unique)
+    unique = [
+        item for item in unique
+        if not any(w in item["title"].lower() for w in _SPORTS_BLACKLIST)
+    ]
+    if len(unique) < antes:
+        print(f"  {antes - len(unique)} item(s) descartado(s) pelo filtro esportivo")
+
+    print(f"  {len(items)} brutas → {len(unique)} únicas após dedup + filtro")
     return unique
 
 
@@ -252,7 +268,13 @@ async def run_celebridades(on_progress=None, max_shorts: int | None = None) -> l
     except Exception as e:
         print(f"  Trending falhou (não crítico): {e}")
 
-    items = select_top_n_relevant("Celebridades", raw_items, limite, trending=trending)
+    items = select_top_n_relevant(
+        "Celebridades — fofoca e entretenimento: atores, cantores, artistas, influencers e famosos BR. "
+        "INCLUIR: romance, separação, polêmica, flagra, affair, reality show, novela, vida pessoal de famosos. "
+        "EXCLUIR: resultados de partidas, placar, escalação, gol, classificação esportiva — "
+        "esportistas só entram se for fofoca da vida pessoal deles.",
+        raw_items, limite, trending=trending,
+    )
     print(f"  {len(raw_items)} candidatas → {len(items)} selecionadas por relevância (limite={limite})")
 
     # 2. Extrair conteúdo + resumir
