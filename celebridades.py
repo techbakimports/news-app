@@ -157,10 +157,8 @@ def _summarize_celebridade(title: str, content: str) -> str | None:
     Gera narração estilo gossip/entretenimento (~350-400 palavras).
     Cadeia: Groq (primário) → Gemini (fallback) → None.
     """
-    from dotenv import dotenv_values
-    env = dotenv_values()
-    groq_key   = os.getenv("GROQ_API_KEY", env.get("GROQ_API_KEY", ""))
-    gemini_key = os.getenv("GEMINI_API_KEY", env.get("GEMINI_API_KEY", ""))
+    groq_key   = os.getenv("GROQ_API_KEY", "")
+    gemini_key = os.getenv("GEMINI_API_KEY", "")
 
     prompt = (
         "Você é uma apresentadora animada de programa de entretenimento brasileiro, "
