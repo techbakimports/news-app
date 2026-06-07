@@ -275,14 +275,6 @@ def kb_noticias() -> InlineKeyboardMarkup:
     return kb_nicho_yt("noticias", "nav|shorts_menu")
 
 
-def kb_tech_news() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("▶️ Gerar Tech Shorts (público)", callback_data="run|tech_news|pub")],
-        [InlineKeyboardButton("💾 Só gerar (sem upload)",       callback_data="run|tech_news|local")],
-        [InlineKeyboardButton("🔒 Publicar como privado",       callback_data="run|tech_news|priv")],
-        [InlineKeyboardButton("⬅️ Voltar",                      callback_data="nav|main")],
-    ])
-
 
 def kb_curiosidades() -> InlineKeyboardMarkup:
     return kb_nicho_yt("curiosidades", "nav|shorts_menu")
@@ -802,11 +794,6 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 "📰 <b>Notícias</b>",
                 reply_markup=kb_noticias(), parse_mode="HTML",
             )
-        elif dest == "tech_news":
-            await q.edit_message_text(
-                "💻 <b>Tech Shorts</b>",
-                reply_markup=kb_tech_news(), parse_mode="HTML",
-            )
         elif dest == "curiosidades":
             await q.edit_message_text(
                 "🧠 <b>Curiosidades</b>",
@@ -1032,8 +1019,6 @@ def _get_pipeline_info(parts: list):
     tipo = parts[0]
     if tipo == "noticias" and len(parts) > 1:
         return ("noticias", parts[1] != "local")
-    elif tipo == "tech_news" and len(parts) > 1:
-        return ("tech_news", parts[1] != "local")
     elif tipo == "curiosidades" and len(parts) > 1:
         return ("curiosidades", parts[1] != "local")
     elif tipo == "celebridades" and len(parts) > 1:
@@ -1052,7 +1037,7 @@ async def _handle_run(q, context, parts: list, force: bool = False) -> None:
     chat_id = q.message.chat_id
 
     # ── bloqueio de concorrência (evita acumular processos) ──────────────────
-    if tipo in ("noticias", "tech_news", "curiosidades", "celebridades", "audio", "shorts", "sh") and _active_pipelines > 0:
+    if tipo in ("noticias", "curiosidades", "celebridades", "audio", "shorts", "sh") and _active_pipelines > 0:
         text = (
             f"⚠️ Já {'existe' if _active_pipelines == 1 else 'existem'} "
             f"<b>{_active_pipelines}</b> pipeline(s) em execução.\n\n"
@@ -1085,7 +1070,7 @@ async def _handle_run(q, context, parts: list, force: bool = False) -> None:
 
                     force_data = "force|" + "|".join(parts)
                     back_map = {
-                        "noticias": "nav|noticias", "tech_news": "nav|tech_news",
+                        "noticias": "nav|noticias",
                         "curiosidades": "nav|curiosidades",
                         "audio": "nav|audio", "shorts": "nav|shorts",
                     }
@@ -1172,18 +1157,6 @@ async def _handle_run(q, context, parts: list, force: bool = False) -> None:
             cmd.append("--sem-upload")
         visib_label = {"pub": "YouTube público", "priv": "YouTube privado", "local": "sem upload"}.get(visib, visib)
         descricao = f"{_NOMES.get(nicho, nicho)} → {visib_label}"
-        asyncio.create_task(_run_pipeline(chat_id, context.bot, cmd, descricao, q.message))
-        return
-
-    # -- tech news (Shorts via Google News + Groq) --
-    if tipo == "tech_news":
-        visib = parts[1]
-        cmd   = [PYTHON, str(BASE_DIR / "tech_news.py")]
-        if visib == "priv":
-            cmd.append("--privado")
-        elif visib == "local":
-            cmd.append("--sem-upload")
-        descricao = f"Tech News → YouTube {_VISIB_LABEL[visib]}"
         asyncio.create_task(_run_pipeline(chat_id, context.bot, cmd, descricao, q.message))
         return
 
