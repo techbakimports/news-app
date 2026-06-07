@@ -26,7 +26,6 @@ load_dotenv()
 from config import (
     AUDIO_OUTPUT_DIR,
     DRIVE_SYNC_DIR,
-    TIKTOK_UPLOAD,
     SITES_CELEBRIDADES,
 )
 from fetcher import (
@@ -73,11 +72,9 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 
 YOUTUBE_UPLOAD      = True
 YOUTUBE_PUBLISH_NOW = True
-MAX_CELEBS_PER_RUN  = 3   # máx de Shorts por execução
+MAX_CELEBS_PER_RUN  = 5   # máx de Shorts por execução
 
-# Plataformas-alvo (modificadas via CLI args; TikTok lê kill-switch de config.py)
 POST_YOUTUBE = True
-POST_TIKTOK  = TIKTOK_UPLOAD
 
 
 # -- CTA -----------------------------------------------------------------------
@@ -163,7 +160,7 @@ def _summarize_celebridade(title: str, content: str) -> str | None:
 
     prompt = (
         "Você é uma apresentadora animada de programa de entretenimento brasileiro, "
-        "narrando uma notícia de famosos em formato Short (TikTok/YouTube).\n\n"
+        "narrando uma notícia de famosos em formato Short para YouTube.\n\n"
         f"Título da notícia: {title}\n"
         f"Conteúdo (use como base factual):\n{content[:3000]}\n\n"
         "REGRAS OBRIGATÓRIAS:\n"
@@ -320,7 +317,7 @@ async def run_celebridades(on_progress=None, max_shorts: int | None = None) -> l
 
         if not YOUTUBE_UPLOAD:
             try:
-                path, _ = await generate_short_from_text(
+                path = await generate_short_from_text(
                     title=title,
                     narration=narracao,
                     category="Celebridades",
@@ -330,8 +327,6 @@ async def run_celebridades(on_progress=None, max_shorts: int | None = None) -> l
                     hashtags=celeb_hashtags,
                     playlist_key="celebridades",
                     instagram_enabled=False,
-                    youtube_enabled=POST_YOUTUBE,
-                    tiktok_enabled=POST_TIKTOK,
                     link=item.get("link"),
                     voice="pt-BR-ThalitaNeural",
                 )
@@ -341,7 +336,7 @@ async def run_celebridades(on_progress=None, max_shorts: int | None = None) -> l
             continue
 
         try:
-            video_id, _tk_ok = await generate_short_from_text(
+            video_id = await generate_short_from_text(
                 title=title,
                 narration=narracao,
                 category="Celebridades",
@@ -351,8 +346,6 @@ async def run_celebridades(on_progress=None, max_shorts: int | None = None) -> l
                 hashtags=celeb_hashtags,
                 playlist_key="celebridades",
                 instagram_enabled=False,
-                youtube_enabled=POST_YOUTUBE,
-                tiktok_enabled=POST_TIKTOK,
                 link=item.get("link"),
                 voice="pt-BR-ThalitaNeural",
             )
@@ -385,14 +378,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(prog="celebridades.py", add_help=True)
     parser.add_argument("--sem-upload", action="store_true", help="só gera, sem upload")
     parser.add_argument("--privado",    action="store_true", help="publica como privado")
-    parser.add_argument("--apenas-youtube", action="store_true", help="só YouTube")
     parser.add_argument("--max", type=int, default=None, help=f"máx Shorts (padrão {MAX_CELEBS_PER_RUN})")
     args, _ = parser.parse_known_args()
 
     if args.sem_upload:
         YOUTUBE_UPLOAD = False
-    if args.apenas_youtube:
-        POST_TIKTOK = False
     if args.privado:
         YOUTUBE_PUBLISH_NOW = False
 

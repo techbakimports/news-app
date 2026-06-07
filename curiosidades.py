@@ -1,7 +1,7 @@
 """
 Pipeline de Curiosidades — gera 1 Short com curiosidade aleatória gerada por Gemini.
 
-Fluxo: Gemini sorteia tema + redige curiosidade -> generate_short_from_text -> YouTube + TikTok
+Fluxo: Gemini sorteia tema + redige curiosidade -> generate_short_from_text -> YouTube
 
 Uso:
     python curiosidades.py
@@ -22,7 +22,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from config import AUDIO_OUTPUT_DIR, TIKTOK_UPLOAD
+from config import AUDIO_OUTPUT_DIR
 
 # -- Logging -------------------------------------------------------------------
 
@@ -59,9 +59,7 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 YOUTUBE_UPLOAD = True
 YOUTUBE_PUBLISH_NOW = True
 
-# Plataformas-alvo (modificadas via CLI args; TIKTOK lê kill-switch global de config.py)
 POST_YOUTUBE = True
-POST_TIKTOK = TIKTOK_UPLOAD
 
 # Histórico de temas pra evitar repetição
 _HISTORY_FILE = os.path.join(_LOG_DIR, "curiosidades_history.json")
@@ -345,68 +343,41 @@ async def run_curiosidade(on_progress=None):
         hashtags=["Shorts", "Curiosidade", "VoceSabia", "Fatos", "Aprender"],
         playlist_key="curiosidades",
         instagram_enabled=False,
-        youtube_enabled=POST_YOUTUBE,
-        tiktok_enabled=POST_TIKTOK,
-        voice="pt-BR-FranciscaNeural",  # Francisca fixa em Curiosidades
+        voice="pt-BR-FranciscaNeural",
     )
-
-    plataformas = []
-    if POST_YOUTUBE: plataformas.append("YouTube")
-    if POST_TIKTOK: plataformas.append("TikTok")
-    print(f"  Plataformas: {' + '.join(plataformas) if plataformas else 'NENHUMA'}")
 
     if not YOUTUBE_UPLOAD:
         try:
-            path, _ = await generate_short_from_text(upload=False, **common_args)
+            path = await generate_short_from_text(upload=False, **common_args)
             print(f"\nVídeo local: {path}")
         except Exception as e:
             print(f"Erro ao gerar vídeo: {e}")
         return None
 
     try:
-        video_id, tiktok_ok = await generate_short_from_text(upload=True, **common_args)
+        video_id = await generate_short_from_text(upload=True, **common_args)
     except Exception as e:
         print(f"Erro no upload: {e}")
         from telegram_notifier import notify
         notify(f"❌ <b>Curiosidade:</b> erro no upload — {e}")
         return None
 
-    yt_ok = bool(video_id)
-
     from telegram_notifier import notify
 
-    if yt_ok and tiktok_ok:
-        print(f"\nCuriosidade publicada: https://youtu.be/{video_id} + TikTok")
+    if video_id:
+        print(f"\nCuriosidade publicada no YouTube: https://youtu.be/{video_id}")
         notify(
             f"✅ <b>Curiosidade postada!</b>\n"
             f"<i>{curiosidade['tema']}</i>\n"
             f"{curiosidade['titulo']}\n"
-            f"📺 YouTube + 🎵 TikTok\n"
             f"https://youtu.be/{video_id}"
-        )
-    elif yt_ok:
-        msg_tk = "" if not POST_TIKTOK else "\n⚠️ TikTok falhou (ver log)"
-        print(f"\nCuriosidade publicada no YouTube: https://youtu.be/{video_id}{msg_tk}")
-        notify(
-            f"✅ <b>Curiosidade postada no YouTube!</b>{msg_tk}\n"
-            f"<i>{curiosidade['tema']}</i>\n"
-            f"{curiosidade['titulo']}\n"
-            f"https://youtu.be/{video_id}"
-        )
-    elif tiktok_ok:
-        msg_yt = "" if not POST_YOUTUBE else "\n⚠️ YouTube falhou (ver log)"
-        print(f"\nCuriosidade postada no TikTok{msg_yt}")
-        notify(
-            f"✅ <b>Curiosidade postada no TikTok!</b>{msg_yt}\n"
-            f"<i>{curiosidade['tema']}</i>\n"
-            f"{curiosidade['titulo']}"
         )
     else:
-        plats_pedidas = " + ".join(plataformas) if plataformas else "(nenhuma)"
-        print(f"\n❌ Nenhuma plataforma aceitou. Pedidas: {plats_pedidas}")
+        print(f"\n❌ YouTube falhou.")
         notify(
-            f"❌ <b>Curiosidade:</b> nenhuma plataforma aceitou.\n"
-            f"Pedidas: {plats_pedidas}\n"
+            f"❌ <b>Curiosidade:</b> YouTube falhou.\n"
+            f"<i>{curiosidade['tema']}</i>\n"
+            f"{curiosidade['titulo']}\n"
             f"<i>{curiosidade['titulo']}</i>"
         )
 
@@ -419,16 +390,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(prog="curiosidades.py", add_help=True)
     parser.add_argument("--sem-upload", action="store_true", help="só gera, sem upload em nenhuma plataforma")
     parser.add_argument("--privado", action="store_true", help="publica como privado no YouTube")
-    parser.add_argument("--apenas-youtube", action="store_true", help="publica SOMENTE no YouTube")
-    parser.add_argument("--apenas-tiktok", action="store_true", help="publica SOMENTE no TikTok")
     args, _ = parser.parse_known_args()
 
     if args.sem_upload:
         YOUTUBE_UPLOAD = False
-    if args.apenas_youtube:
-        POST_TIKTOK = False
-    if args.apenas_tiktok:
-        POST_YOUTUBE = False
     if args.privado:
         YOUTUBE_PUBLISH_NOW = False
 

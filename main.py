@@ -2,17 +2,15 @@
 Pipeline de Notícias — gera APENAS Shorts (sem vídeo longo).
 
 Fluxo: Google News -> 1 notícia por categoria selecionada -> resumo Groq/Gemini (~400 palavras)
-       -> generate_short_from_text -> YouTube + TikTok
+       -> generate_short_from_text -> YouTube
 
 Categorias configuradas em config.NEWS_SHORTS_CATEGORIES.
 Cada notícia vira 1 Short denso (~3 min) com CTA, igual ao formato Curiosidades.
 
 Uso:
-    python main.py                  # YouTube + TikTok (público)
-    python main.py --apenas-youtube # só YouTube
-    python main.py --apenas-tiktok  # só TikTok
-    python main.py --privado        # YouTube privado (+ TikTok)
-    python main.py --sem-upload     # só gera local
+    python main.py             # YouTube público
+    python main.py --privado   # YouTube privado
+    python main.py --sem-upload # só gera local
 """
 import argparse
 import asyncio
@@ -26,7 +24,7 @@ load_dotenv()
 
 from fetcher import fetch_latest_news, extract_article_content, select_unique_news
 from summarizer import summarize_news_for_short, select_most_relevant
-from config import DRIVE_SYNC_DIR, AUDIO_OUTPUT_DIR, NEWS_SHORTS_CATEGORIES, TIKTOK_UPLOAD
+from config import DRIVE_SYNC_DIR, AUDIO_OUTPUT_DIR, NEWS_SHORTS_CATEGORIES
 
 # Logging — monitorar com: tail -f logs/noticias.log
 _LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
@@ -55,9 +53,7 @@ def print(*args, **kwargs):  # noqa: A001
 YOUTUBE_UPLOAD = True
 YOUTUBE_PUBLISH_NOW = True
 
-# Plataformas-alvo (modificadas via CLI args; TIKTOK lê kill-switch global de config.py)
 POST_YOUTUBE = True
-POST_TIKTOK = TIKTOK_UPLOAD
 
 # Configuração de limpeza
 CLEANUP_HOURS = 24
@@ -86,7 +82,7 @@ def cleanup_old_files():
 async def run_news_cycle(on_progress=None):
     """
     Pipeline Notícias — 1 Short por categoria selecionada.
-    Retorna lista de (categoria, video_id, tiktok_ok) das execuções.
+    Retorna lista de (categoria, video_id) das execuções.
     """
     pipeline_start = time.time()
 
@@ -100,10 +96,7 @@ async def run_news_cycle(on_progress=None):
 
     privacy = "public" if YOUTUBE_PUBLISH_NOW else "private"
 
-    plataformas = []
-    if POST_YOUTUBE: plataformas.append("YouTube")
-    if POST_TIKTOK: plataformas.append("TikTok")
-    print(f"Plataformas: {' + '.join(plataformas) if plataformas else 'NENHUMA'}")
+    print(f"Plataforma: YouTube")
 
     # ---------- Fase 1: Fetch ----------
     # limit=5 por (categoria × site) — pool maior garante candidatos suficientes
@@ -231,12 +224,11 @@ async def run_news_cycle(on_progress=None):
 
     from shorts import generate_short_from_text
 
-    resultados = []  # [(categoria, video_id, tiktok_ok), ...]
+    resultados = []  # [(categoria, video_id), ...]
     for i, item in enumerate(items_com_narracao, 1):
         cat = item["category"]
         print(f"\n  ── Short {i}/{len(items_com_narracao)} — {cat} ──")
 
-        # Adiciona CTA fixo no final
         cta = (
             " Curtiu essa notícia? Então deixa o like, "
             "compartilha com quem precisa saber, e se inscreve no canal "
@@ -248,7 +240,7 @@ async def run_news_cycle(on_progress=None):
 
         if not YOUTUBE_UPLOAD:
             try:
-                path, _ = await generate_short_from_text(
+                path = await generate_short_from_text(
                     title=item["title"],
                     narration=narracao_final,
                     category=cat,
@@ -258,18 +250,16 @@ async def run_news_cycle(on_progress=None):
                     hashtags=cat_hashtags,
                     playlist_key="noticias",
                     instagram_enabled=False,
-                    youtube_enabled=POST_YOUTUBE,
-                    tiktok_enabled=POST_TIKTOK,
                     link=item.get("link"),
                 )
                 print(f"  Vídeo local: {path}")
-                resultados.append((cat, None, False))
+                resultados.append((cat, None))
             except Exception as e:
                 print(f"  Erro: {e}")
             continue
 
         try:
-            video_id, tiktok_ok = await generate_short_from_text(
+            video_id = await generate_short_from_text(
                 title=item["title"],
                 narration=narracao_final,
                 category=cat,
@@ -279,14 +269,12 @@ async def run_news_cycle(on_progress=None):
                 hashtags=cat_hashtags,
                 playlist_key="noticias",
                 instagram_enabled=False,
-                youtube_enabled=POST_YOUTUBE,
-                tiktok_enabled=POST_TIKTOK,
                 link=item.get("link"),
             )
-            resultados.append((cat, video_id, tiktok_ok))
+            resultados.append((cat, video_id))
         except Exception as e:
             print(f"  ❌ Erro no Short {i} ({cat}): {e}")
-            resultados.append((cat, None, False))
+            resultados.append((cat, None))
 
     print(f"\n{_elapsed()} [FASE 4] OK em {int(time.time()-phase_start)}s")
 
@@ -294,21 +282,17 @@ async def run_news_cycle(on_progress=None):
     total_min, total_sec = divmod(int(time.time() - pipeline_start), 60)
     print(f"\n{_elapsed()} === PIPELINE CONCLUÍDO === ({total_min}m{total_sec:02d}s totais)")
 
-    yt_ok = sum(1 for _, vid, _ in resultados if vid)
-    tk_ok = sum(1 for _, _, t in resultados if t)
+    yt_ok = sum(1 for _, vid in resultados if vid)
     print(f"  YouTube: ✅ {yt_ok}/{len(resultados)}")
-    print(f"  TikTok:  ✅ {tk_ok}/{len(resultados)}")
 
     if YOUTUBE_UPLOAD:
         try:
             from telegram_notifier import notify
             linhas = [f"✅ <b>Notícias postadas!</b> ({total_min}m{total_sec:02d}s)"]
-            linhas.append(f"📺 YouTube: {yt_ok}/{len(resultados)}  |  🎵 TikTok: {tk_ok}/{len(resultados)}")
+            linhas.append(f"📺 YouTube: {yt_ok}/{len(resultados)}")
             linhas.append("")
-            for cat, vid, tk in resultados:
-                yt_emoji = "✅" if vid else "❌"
-                tk_emoji = "✅" if tk else "❌"
-                linha = f"• {cat}: 📺{yt_emoji} 🎵{tk_emoji}"
+            for cat, vid in resultados:
+                linha = f"• {cat}: {'✅' if vid else '❌'}"
                 if vid:
                     linha += f" — https://youtu.be/{vid}"
                 linhas.append(linha)
@@ -325,16 +309,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(prog="main.py", add_help=True)
     parser.add_argument("--sem-upload", action="store_true", help="só gera local, sem upload em nenhuma plataforma")
     parser.add_argument("--privado", action="store_true", help="publica como privado no YouTube")
-    parser.add_argument("--apenas-youtube", action="store_true", help="publica SOMENTE no YouTube")
-    parser.add_argument("--apenas-tiktok", action="store_true", help="publica SOMENTE no TikTok")
     args, _ = parser.parse_known_args()
 
     if args.sem_upload:
         YOUTUBE_UPLOAD = False
-    if args.apenas_youtube:
-        POST_TIKTOK = False
-    if args.apenas_tiktok:
-        POST_YOUTUBE = False
     if args.privado:
         YOUTUBE_PUBLISH_NOW = False
 

@@ -122,7 +122,7 @@ def _summarize_for_short(title: str, category: str, content: str) -> tuple[str, 
     """
     cats_str = ", ".join(sorted(_VALID_CATEGORIES))
     prompt = (
-        f"Você é um apresentador de notícias no estilo TikTok/Shorts — direto, impactante e sem rodeios.\n"
+        f"Você é um apresentador de notícias no estilo YouTube Shorts — direto, impactante e sem rodeios.\n"
         f"Faça DUAS coisas:\n\n"
         f"1. CATEGORIA CORRETA: analise o conteúdo e escolha a categoria que MELHOR descreve esta notícia dentre: {cats_str}.\n"
         f"   A categoria sugerida foi '{category}', mas pode estar ERRADA. Corrija se necessário.\n"
@@ -338,17 +338,14 @@ async def generate_short_from_text(
     playlist_key: str = "noticias",
     instagram_enabled: bool = True,
     youtube_enabled: bool = True,
-    tiktok_enabled: bool = True,
     link: str | None = None,
     voice: str | None = None,
-) -> tuple[str | None, bool]:
+) -> str | None:
     """
     Gera um Short vertical 1080×1920 a partir de TEXTO PRONTO (sem chamar Gemini).
 
-    Retorna (video_id_youtube_ou_None, tiktok_ok_bool).
-    Quando upload=False, retorna (caminho_local_str, False).
-
-    Faz TTS + busca imagem Pexels + renderiza frame + upload YouTube/Instagram/TikTok.
+    Retorna video_id do YouTube ou caminho local quando upload=False.
+    Faz TTS + busca imagem Pexels + renderiza frame + upload YouTube/Instagram.
 
     Args:
         title: título da notícia (exibido em destaque)
@@ -471,7 +468,6 @@ async def generate_short_from_text(
     yt_tags = [t.lower() for t in all_tags] + [category.lower()]
 
     video_id = None
-    tiktok_ok = False
 
     # YouTube
     if youtube_enabled:
@@ -503,34 +499,13 @@ async def generate_short_from_text(
         except Exception as e:
             print(f"    Instagram Reel falhou: {e}")
 
-    # TikTok
-    if tiktok_enabled:
-        try:
-            from config import TIKTOK_UPLOAD
-            if TIKTOK_UPLOAD:
-                from tiktok_publisher import upload_video as tk_upload, TIKTOK_ENABLED
-                if TIKTOK_ENABLED:
-                    tk_desc = f"{title}\n\nFonte: {source}"
-                    tk_hashtags = [t.lower() for t in all_tags]
-                    # asyncio.to_thread porque tiktok-uploader usa Playwright Sync
-                    # internamente — não pode rodar dentro de asyncio loop ativo
-                    if await asyncio.to_thread(tk_upload, output_path, tk_desc, tk_hashtags):
-                        print(f"    TikTok: OK")
-                        tiktok_ok = True
-                    else:
-                        print(f"    TikTok: falhou (ver erro acima)")
-        except Exception as e:
-            print(f"    TikTok falhou: {e}")
-    else:
-        print(f"    TikTok: PULADO (tiktok_enabled=False)")
-
     # Cleanup
     try:
         os.remove(output_path)
     except Exception:
         pass
 
-    return (video_id, tiktok_ok)
+    return video_id
 
 
 async def generate_short(item: dict, upload: bool = True, privacy: str = "public") -> str | None:
@@ -649,16 +624,6 @@ async def generate_short(item: dict, upload: bool = True, privacy: str = "public
                     )
                     upload_reel(output_path, ig_caption)
 
-            # TikTok — mesmo vídeo vertical
-            from config import TIKTOK_UPLOAD
-            if TIKTOK_UPLOAD:
-                from tiktok_publisher import upload_video as tiktok_upload, TIKTOK_ENABLED
-                if TIKTOK_ENABLED:
-                    tk_hashtags = [t.lower() for t in all_tags]
-                    tk_desc = f"{title}\n\nFonte: {source}"
-                    # asyncio.to_thread — Playwright Sync NÃO funciona dentro do asyncio loop
-                    await asyncio.to_thread(tiktok_upload, output_path, tk_desc, tk_hashtags)
-
             try:
                 os.remove(output_path)
             except Exception:
@@ -713,7 +678,7 @@ def generate_short_from_video(
 ) -> str | None:
     """
     Corta os primeiros `duration_s` segundos do vídeo landscape e converte
-    para 1080×1920 portrait com blur background (estilo TikTok/Reels).
+    para 1080×1920 portrait com blur background (estilo Shorts/Reels).
     Faz upload como Short logo após o vídeo principal.
 
     Retorna o video_id do Short ou None em caso de falha.
@@ -792,15 +757,6 @@ def generate_short_from_video(
                     f"{title}\n\n{hash_line.lower()}"
                 )
                 upload_reel(output_path, ig_caption)
-
-        # TikTok — mesmo vídeo vertical
-        from config import TIKTOK_UPLOAD
-        if TIKTOK_UPLOAD:
-            from tiktok_publisher import upload_video as tiktok_upload, TIKTOK_ENABLED
-            if TIKTOK_ENABLED:
-                tk_desc = f"{title}"
-                tk_hashtags = [t.lower() for t in all_tags]
-                tiktok_upload(output_path, tk_desc, tk_hashtags)
 
         try:
             os.remove(output_path)
@@ -923,7 +879,6 @@ def generate_shorts_per_category(
     # Rastreio detalhado por plataforma pra resumo final
     stats = {
         "youtube_ok": 0, "youtube_fail": 0,
-        "tiktok_ok": 0, "tiktok_fail": 0,
         "instagram_ok": 0, "instagram_fail": 0,
         "ffmpeg_fail": 0,
     }
@@ -968,7 +923,7 @@ def generate_shorts_per_category(
         )
         yt_tags = [t.lower() for t in all_tags]
 
-        # YouTube — falha aqui NÃO cancela Instagram nem TikTok
+        # YouTube — falha aqui NÃO cancela Instagram
         try:
             video_id = upload_video(output_path, yt_title, yt_desc, yt_tags, privacy=privacy)
             uploaded_ids.append(video_id)
@@ -1000,24 +955,6 @@ def generate_shorts_per_category(
             falhas_detalhadas.append(f"{category}/Instagram: {type(e).__name__}: {str(e)[:120]}")
             print(f"    ❌ Instagram Reel falhou: {type(e).__name__}: {e}")
 
-        # TikTok — independente
-        try:
-            from config import TIKTOK_UPLOAD
-            if TIKTOK_UPLOAD:
-                from tiktok_publisher import upload_video as tiktok_upload, TIKTOK_ENABLED
-                if TIKTOK_ENABLED:
-                    tk_desc = f"{title}"
-                    tk_hashtags = [t.lower() for t in all_tags]
-                    if tiktok_upload(output_path, tk_desc, tk_hashtags):
-                        stats["tiktok_ok"] += 1
-                    else:
-                        stats["tiktok_fail"] += 1
-                        falhas_detalhadas.append(f"{category}/TikTok: ver log detalhado acima")
-        except Exception as e:
-            stats["tiktok_fail"] += 1
-            falhas_detalhadas.append(f"{category}/TikTok: {type(e).__name__}: {str(e)[:120]}")
-            print(f"    ❌ TikTok falhou (exception): {type(e).__name__}: {e}")
-
         # Limpa arquivo local do Short
         try:
             os.remove(output_path)
@@ -1029,7 +966,6 @@ def generate_shorts_per_category(
     print(f"[Shorts/categoria] RESUMO:")
     print(f"  • Tentados:    {len(selected)} Shorts")
     print(f"  • YouTube:     ✅ {stats['youtube_ok']} ok / ❌ {stats['youtube_fail']} falhas")
-    print(f"  • TikTok:      ✅ {stats['tiktok_ok']} ok / ❌ {stats['tiktok_fail']} falhas")
     if stats["instagram_ok"] + stats["instagram_fail"] > 0:
         print(f"  • Instagram:   ✅ {stats['instagram_ok']} ok / ❌ {stats['instagram_fail']} falhas")
     if stats["ffmpeg_fail"]:

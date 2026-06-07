@@ -1,7 +1,7 @@
 """
 Pipeline de Tech Shorts — produz APENAS Shorts (sem vídeo longo).
 
-Fluxo: Google News RSS (10 sites tech) -> top N tópicos -> Groq/Gemini resume -> 1 Short por tópico -> YouTube + TikTok
+Fluxo: Google News RSS (10 sites tech) -> top N tópicos -> Groq/Gemini resume -> 1 Short por tópico -> YouTube
 
 NotebookLM removido — fonte agora é o mesmo Google News RSS do main.py,
 filtrado por sites tech.
@@ -234,7 +234,7 @@ async def run_tech_news(on_progress=None):
     print(f"Roteiro salvo: {md_path}")
 
     # 3. Gerar Shorts (1 por notícia)
-    print(f"\n[3/3] Gerando {len(items)} Shorts (YouTube + TikTok)...")
+    print(f"\n[3/3] Gerando {len(items)} Shorts...")
     if on_progress:
         try: await on_progress(f"Gerando {len(items)} Shorts...")
         except Exception: pass
@@ -252,7 +252,7 @@ async def run_tech_news(on_progress=None):
 
         if not YOUTUBE_UPLOAD:
             try:
-                path, _ = await generate_short_from_text(
+                path = await generate_short_from_text(
                     title=title, narration=narration,
                     category="Tecnologia", source=source,
                     upload=False, privacy=privacy,
@@ -266,7 +266,7 @@ async def run_tech_news(on_progress=None):
             continue
 
         try:
-            video_id, _tk_ok = await generate_short_from_text(
+            video_id = await generate_short_from_text(
                 title=title, narration=narration,
                 category="Tecnologia", source=source,
                 upload=True, privacy=privacy,

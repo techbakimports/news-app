@@ -52,7 +52,6 @@ NEWS_SHORTS_CATEGORIES = [
     "Entretenimento",
     "Mercado Financeiro",
     "Policial",
-    "Celebridades",
 ]
 
 # Configurações de Resumo
@@ -90,7 +89,3 @@ CHANNEL_NAME = "NewsApp Brasil"  # Nome exibido no canto superior direito do ví
 
 # Instagram — ativa se INSTAGRAM_USERNAME e INSTAGRAM_PASSWORD estiverem no .env
 INSTAGRAM_UPLOAD = False  # False para desativar mesmo com credenciais configuradas
-
-# TikTok — ativa se credentials/tiktok_cookies.json existir
-# Kill-switch global: True/False afeta TODOS os pipelines (noticias, curiosidades, tech, shorts).
-TIKTOK_UPLOAD = False  # desativado por opção do usuário ate segunda ordem

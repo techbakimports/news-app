@@ -402,7 +402,7 @@ def summarize_news_for_short(category: str, title: str, content: str) -> tuple[s
     if category == "Celebridades":
         persona = (
             "Você é uma apresentadora animada de programa de entretenimento brasileiro, "
-            "narrando uma fofoca dos famosos em formato Short (TikTok/YouTube)."
+            "narrando uma fofoca dos famosos em formato Short para YouTube."
         )
         tom_extra = (
             "- Tom: leve, divertido, animado — como fofoca entre amigas, mas sem difamar\n"
@@ -411,7 +411,7 @@ def summarize_news_for_short(category: str, title: str, content: str) -> tuple[s
             "  (ex: 'E você, o que acha? Comenta aqui embaixo!')\n"
         )
     else:
-        persona = "Você é um jornalista narrando notícia em formato Shorts (TikTok/YouTube)."
+        persona = "Você é um jornalista narrando notícia em formato YouTube Shorts."
         tom_extra = (
             "- Português do Brasil, tom natural de podcast/Shorts (não engessado)\n"
             "- Termine com uma reflexão sobre o impacto da notícia ou desdobramento esperado\n"
