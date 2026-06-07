@@ -377,6 +377,11 @@ async def run_celebridades(on_progress=None, max_shorts: int | None = None) -> l
         except Exception as e:
             print(f"  Erro no Short {i}: {e}")
 
+        # Espaçamento entre Shorts para não canibalizar o alcance no algoritmo
+        if i < len(items_com_narracao):
+            print(f"\n  ⏳ Aguardando 10 min antes do próximo Short ({i+1}/{len(items_com_narracao)})...")
+            await asyncio.sleep(600)
+
     # Notificação final
     try:
         from telegram_notifier import notify

@@ -279,6 +279,11 @@ async def run_tech_news(on_progress=None):
         except Exception as e:
             print(f"  Erro no Short {i}: {e}")
 
+        # Espaçamento entre Shorts para não canibalizar o alcance no algoritmo
+        if i < len(items):
+            print(f"\n  ⏳ Aguardando 10 min antes do próximo Short ({i+1}/{len(items)})...")
+            await asyncio.sleep(600)
+
     # Notificação final
     from telegram_notifier import notify
     if uploaded_ids:
