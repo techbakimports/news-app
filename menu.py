@@ -746,6 +746,39 @@ def menu_tech_news():
             input("  Opcao invalida. [Enter]")
 
 
+def menu_celebridades():
+    while True:
+        cabecalho("-- CELEBRIDADES --")
+        print("  Pipeline: Google News (portais de fofoca BR) -> Groq/Gemini -> Shorts")
+        print("  Voz: Thalita (pt-BR) | Cor: Rosa pink | CTA de entretenimento")
+        print()
+        print("  1.  Executar (publico, ate 3 Shorts)")
+        print("  2.  Executar sem upload (so gera localmente)")
+        print("  3.  Executar como privado")
+        print("  4.  Executar (1 Short apenas)")
+        print()
+        print("  0.  Voltar")
+        print()
+        op = input("  Escolha: ").strip()
+
+        if op == "1":
+            rodar([PYTHON, "celebridades.py"],
+                  "Celebridades -> YouTube publico", pipeline="celebridades")
+        elif op == "2":
+            rodar([PYTHON, "celebridades.py", "--sem-upload"],
+                  "Celebridades (sem upload)", pipeline="celebridades", upload=False)
+        elif op == "3":
+            rodar([PYTHON, "celebridades.py", "--privado"],
+                  "Celebridades -> YouTube privado", pipeline="celebridades")
+        elif op == "4":
+            rodar([PYTHON, "celebridades.py", "--max", "1"],
+                  "Celebridades -> 1 Short publico", pipeline="celebridades")
+        elif op == "0":
+            return
+        else:
+            input("  Opcao invalida. [Enter]")
+
+
 def main():
     while True:
         cabecalho()
@@ -754,9 +787,10 @@ def main():
         print("  3.  Shorts")
         print("  4.  Tech Shorts (Google News -> Shorts)")
         print("  5.  Curiosidades (Gemini -> 1 Short)")
-        print("  6.  Agendamento")
-        print("  7.  Organizar videos em playlists")
-        print("  8.  Status das Redes Sociais")
+        print("  6.  Celebridades (Fofoca BR -> Shorts)")
+        print("  7.  Agendamento")
+        print("  8.  Organizar videos em playlists")
+        print("  9.  Status das Redes Sociais")
         print()
         print("  0.  Sair")
         print()
@@ -773,8 +807,10 @@ def main():
         elif op == "5":
             menu_curiosidades()
         elif op == "6":
-            menu_agendamento()
+            menu_celebridades()
         elif op == "7":
+            menu_agendamento()
+        elif op == "8":
             cabecalho("-- ORGANIZAR PLAYLISTS --")
             print("  Isso vai listar todos os videos do canal e")
             print("  adiciona-los as playlists correspondentes.\n")
@@ -784,7 +820,7 @@ def main():
                 from playlists import organize_existing_videos
                 organize_existing_videos()
             aguardar()
-        elif op == "8":
+        elif op == "9":
             cabecalho("-- REDES SOCIAIS --")
 
             # Instagram
