@@ -198,14 +198,15 @@ def _summarize_celebridade(title: str, content: str) -> str | None:
         except Exception as e:
             print(f"  Groq falhou: {e}. Tentando Gemini...")
 
-    # 2) Gemini fallback
+    # 2) Gemini fallback — usa google-genai (mesmo pacote do summarizer.py)
     if gemini_key and gemini_key not in ("", "cole_sua_chave_aqui"):
         try:
-            import google.generativeai as genai
-            genai.configure(api_key=gemini_key)
-            model = genai.GenerativeModel("gemini-2.0-flash")
-            resp = model.generate_content(prompt)
-            text = resp.text.strip()
+            from google import genai as google_genai
+            client = google_genai.Client(api_key=gemini_key)
+            response = client.models.generate_content(
+                model="gemini-2.0-flash", contents=prompt
+            )
+            text = response.text.strip()
             if text:
                 print(f"  [Gemini] narração gerada ({len(text.split())} palavras)")
                 return text
