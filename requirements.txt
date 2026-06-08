@@ -24,6 +24,10 @@ instagrapi
 # Trending topics (trends.py)
 pytrends          # Google Trends BR — pip install pytrends
 
+# Clipper — corta vídeos do YouTube em Shorts com legendas animadas
+faster-whisper    # transcrição com word timestamps (pip install faster-whisper)
+yt-dlp            # download de vídeos do YouTube (pip install yt-dlp)
+
 # TikTok (precisa do Google Chrome instalado no sistema — ver install_system_deps.sh)
 tiktok-uploader
 
