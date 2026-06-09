@@ -33,6 +33,11 @@ import numpy as np
 from dotenv import load_dotenv
 from PIL import Image, ImageDraw, ImageFont
 
+# Patch de compatibilidade: PIL.Image.ANTIALIAS foi removido no Pillow 10+
+# moviepy < 2.0 ainda usa ANTIALIAS internamente
+if not hasattr(Image, "ANTIALIAS"):
+    Image.ANTIALIAS = Image.LANCZOS  # type: ignore[attr-defined]
+
 load_dotenv()
 
 from config import AUDIO_OUTPUT_DIR, DRIVE_SYNC_DIR
@@ -52,6 +57,16 @@ logging.basicConfig(
     ],
 )
 log = logging.getLogger(__name__)
+
+# Garante UTF-8 no stdout/stderr (Windows usa cp1252 por padrão)
+import sys as _sys
+if hasattr(_sys.stdout, "reconfigure"):
+    try:
+        _sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        _sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 _orig_print = print
 
 
@@ -209,17 +224,30 @@ def transcribe_video(video_path: str) -> tuple[list[WordInfo], list[SegmentInfo]
 # 3. Seleção dos melhores momentos via LLM (baseada em segmentos de frase)
 # ---------------------------------------------------------------------------
 
-def _segments_for_llm(segments: list[SegmentInfo], max_chars: int = 7000) -> str:
+def _segments_for_llm(segments: list[SegmentInfo], max_segs: int = 400) -> str:
     """
-    Formata os segmentos de frase do Whisper para o LLM.
-    Cada linha = 1 frase completa com índice e timestamps.
-    Ex: [12] (45.2s→48.7s) "Isso é o maior problema da inteligência artificial hoje."
+    Formata segmentos de frase para o LLM, amostrando uniformemente o vídeo inteiro.
+    Para podcasts longos (milhares de segmentos), amostra max_segs igualmente distribuídos
+    para que o LLM veja o início, meio e fim — não só os primeiros minutos.
+
+    Ex: [12] (45.2s->48.7s) "Isso e o maior problema da IA hoje."
     """
+    if not segments:
+        return ""
+
+    # Amostragem uniforme: se tiver mais segmentos que max_segs, pega 1 a cada N
+    if len(segments) > max_segs:
+        step = len(segments) / max_segs
+        sampled = [segments[int(i * step)] for i in range(max_segs)]
+    else:
+        sampled = segments
+
     lines = []
-    for seg in segments:
-        lines.append(f"[{seg.idx}] ({seg.start:.1f}s→{seg.end:.1f}s) \"{seg.text}\"")
-    full = "\n".join(lines)
-    return full[:max_chars]
+    for seg in sampled:
+        # Sem caracteres especiais que possam quebrar encoding no log
+        text = seg.text.replace('"', "'")
+        lines.append(f"[{seg.idx}] ({seg.start:.0f}s->{seg.end:.0f}s) \"{text}\"")
+    return "\n".join(lines)
 
 
 def select_best_clips(
@@ -287,8 +315,16 @@ def select_best_clips(
         clips = []
 
         for item in data:
-            i_start = int(item.get("start_seg", 0))
-            i_end   = int(item.get("end_seg", i_start + 5))
+            raw_start = item.get("start_seg")
+            raw_end   = item.get("end_seg")
+            # LLM pode retornar null/None — ignora esse item
+            if raw_start is None or raw_end is None:
+                continue
+            try:
+                i_start = int(raw_start)
+                i_end   = int(raw_end)
+            except (TypeError, ValueError):
+                continue
             i_start = max(0, min(i_start, max_seg_idx))
             i_end   = max(i_start, min(i_end, max_seg_idx))
 
@@ -340,12 +376,20 @@ def select_best_clips(
     # Gemini fallback
     if gemini_key:
         try:
-            from google import genai as google_genai
-            gclient = google_genai.Client(api_key=gemini_key)
-            response = gclient.models.generate_content(
-                model="gemini-2.0-flash", contents=prompt
-            )
-            clips = _parse_to_clips(response.text)
+            try:
+                from google import genai as _genai
+                gclient = _genai.Client(api_key=gemini_key)
+                response = gclient.models.generate_content(
+                    model="gemini-2.0-flash", contents=prompt
+                )
+                gemini_text = response.text
+            except ImportError:
+                import google.generativeai as _genai2
+                _genai2.configure(api_key=gemini_key)
+                model_g = _genai2.GenerativeModel("gemini-2.0-flash")
+                gemini_text = model_g.generate_content(prompt).text
+
+            clips = _parse_to_clips(gemini_text)
             if clips:
                 print(f"  [Gemini] {len(clips)} trecho(s) selecionado(s)")
                 return clips
@@ -667,12 +711,12 @@ async def run_clipper(
         print("❌ Nenhum segmento selecionado.")
         return []
 
-    print(f"\n  {'─'*50}")
+    print(f"\n  {'-'*50}")
     for i, seg in enumerate(clip_segments, 1):
         dur = seg.end - seg.start
         print(f"  Clipe {i}: {seg.start:.1f}s → {seg.end:.1f}s  ({dur:.0f}s)")
         print(f"           {seg.reason[:80]}")
-    print(f"  {'─'*50}")
+    print(f"  {'-'*50}")
 
     # 4. Renderizar
     print(f"\n[4/4] Renderizando {len(clip_segments)} clipes...")
@@ -686,7 +730,7 @@ async def run_clipper(
     results: list[str] = []   # caminhos locais ou video_ids
 
     for i, seg in enumerate(clip_segments, 1):
-        print(f"\n  ── Clipe {i}/{len(clip_segments)} ──")
+        print(f"\n  -- Clipe {i}/{len(clip_segments)} --")
         clip_path = os.path.join(work_dir, f"clip_{i:02d}.mp4")
 
         try:
@@ -738,7 +782,7 @@ async def run_clipper(
     except Exception:
         pass
 
-    print(f"\n{'─'*50}")
+    print(f"\n{'-'*50}")
     if not upload:
         print(f"✅ {len(results)} clipe(s) salvos em:\n   {work_dir}")
         print(f"   Transcrição: {transcript_path}")
