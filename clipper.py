@@ -65,11 +65,12 @@ def print(*args, **kwargs):  # noqa: A001
 # ---------------------------------------------------------------------------
 # Configurações
 # ---------------------------------------------------------------------------
-SHORTS_W         = 1080
-SHORTS_H         = 1920
-WORDS_PER_CHUNK  = 3      # palavras exibidas por vez na legenda
-CAPTION_FONT_SZ  = 72     # tamanho da fonte da legenda
-WHISPER_MODEL    = "base" # tiny | base | small | medium (base = bom custo-benefício na VPS)
+SHORTS_W          = 1080
+SHORTS_H          = 1920
+WORDS_PER_CHUNK   = 3     # palavras exibidas por vez na legenda
+CAPTION_FONT_SZ   = 88    # tamanho da fonte (maior = mais legível no celular)
+CAPTION_STROKE    = 5     # espessura do contorno preto nas letras
+WHISPER_MODEL     = "base" # tiny | base | small | medium (base = bom custo-benefício na VPS)
 MAX_CLIP_DURATION = 89    # segundos máximos por clipe (Short limit = 3 min)
 MIN_CLIP_DURATION = 30    # segundos mínimos
 
@@ -447,42 +448,41 @@ def _render_caption_frame(
     h: int,
 ) -> np.ndarray:
     """
-    Renderiza um frame RGBA com o chunk de palavras da legenda.
-    Palavra ativa: amarelo brilhante | demais: branco | fundo: pílula escura.
+    Renderiza um frame RGBA com o chunk de palavras em estilo Opus Clip:
+    - Texto em MAIÚSCULAS
+    - Palavra ativa: amarelo vibrante
+    - Demais palavras: branco
+    - Contorno preto em todas as letras (sem pílula de fundo — legível em qualquer cena)
     """
     img  = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
 
-    # Mede largura de cada palavra (com espaço)
+    # Uppercases todas as palavras
+    upper_words = [word.upper() for word in state.words]
+
+    # Mede largura de cada palavra em maiúsculo (com espaço)
     word_widths = []
-    for word in state.words:
+    for word in upper_words:
         bb = draw.textbbox((0, 0), word + " ", font=font)
         word_widths.append(bb[2] - bb[0])
 
     total_text_w = sum(word_widths)
-    line_h = CAPTION_FONT_SZ + 12
 
-    pad_x, pad_y = 36, 20
-    bg_w = total_text_w + pad_x * 2
-    bg_h = line_h + pad_y * 2
+    # Posição: centralizado horizontalmente, 75% da altura
+    x = (w - total_text_w) // 2
+    y = int(h * 0.75)
 
-    # Posição: 72% da altura da tela
-    x_bg = (w - bg_w) // 2
-    y_bg = int(h * 0.72)
-
-    # Fundo arredondado semi-transparente
-    draw.rounded_rectangle(
-        [x_bg, y_bg, x_bg + bg_w, y_bg + bg_h],
-        radius=22,
-        fill=(0, 0, 0, 185),
-    )
-
-    # Texto palavra a palavra
-    x = x_bg + pad_x
-    y = y_bg + pad_y
-    for i, (word, ww) in enumerate(zip(state.words, word_widths)):
-        color = (255, 220, 0, 255) if i == state.active_idx else (255, 255, 255, 215)
-        draw.text((x, y), word, font=font, fill=color)
+    # Renderiza cada palavra com contorno preto + cor da palavra
+    for i, (word, ww) in enumerate(zip(upper_words, word_widths)):
+        color = (255, 220, 0, 255) if i == state.active_idx else (255, 255, 255, 255)
+        draw.text(
+            (x, y),
+            word,
+            font=font,
+            fill=color,
+            stroke_width=CAPTION_STROKE,
+            stroke_fill=(0, 0, 0, 255),
+        )
         x += ww
 
     return np.array(img)
