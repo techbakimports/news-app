@@ -2,13 +2,17 @@
 clipper.py — Corta vídeos do YouTube em Shorts com legendas animadas (karaoke).
 
 Fluxo:
-    URL YouTube → yt-dlp download → faster-whisper transcrição (word timestamps) →
-    LLM seleciona melhores momentos → corte + legenda animada → upload YouTube
+    URL YouTube → yt-dlp download → faster-whisper transcrição (segmentos + word timestamps) →
+    LLM seleciona melhores frases por tema → corte preciso em boundary de frase →
+    legenda karaoke animada → salva local (ou upload YouTube)
 
-Uso:
-    python clipper.py --url "https://youtu.be/..." --clips 3
-    python clipper.py --url "..." --sem-upload
-    python clipper.py --url "..." --privado --clips 5
+Uso (teste — sem upload):
+    python clipper.py --url "https://youtu.be/..." --clips 3 --sem-upload
+    python clipper.py --url "..." --clips 3 --tema "inteligência artificial" --sem-upload
+
+Uso (produção):
+    python clipper.py --url "..." --clips 3
+    python clipper.py --url "..." --clips 3 --privado
 
 Dependências novas:
     pip install faster-whisper yt-dlp
@@ -82,6 +86,16 @@ class WordInfo:
 
 
 @dataclass
+class SegmentInfo:
+    """Segmento de frase do Whisper — unidade de corte natural."""
+    idx:   int
+    text:  str           # texto completo da frase
+    start: float
+    end:   float
+    words: list[WordInfo]
+
+
+@dataclass
 class ClipSegment:
     start:  float
     end:    float
@@ -135,8 +149,14 @@ def download_youtube_video(url: str, output_dir: str) -> str:
 # 2. Transcrição com timestamps por palavra (faster-whisper)
 # ---------------------------------------------------------------------------
 
-def transcribe_video(video_path: str) -> list[WordInfo]:
-    """Transcreve com timestamps por palavra. Retorna lista de WordInfo."""
+def transcribe_video(video_path: str) -> tuple[list[WordInfo], list[SegmentInfo]]:
+    """
+    Transcreve com timestamps por palavra E por segmento de frase.
+    Retorna (words, segments).
+
+    - words: lista completa de palavras com timestamps individuais (para legenda karaoke)
+    - segments: frases completas do Whisper com índice (para seleção precisa de cortes)
+    """
     try:
         from faster_whisper import WhisperModel
     except ImportError:
@@ -148,73 +168,112 @@ def transcribe_video(video_path: str) -> list[WordInfo]:
     model = WhisperModel(WHISPER_MODEL, device="cpu", compute_type="int8")
 
     print("  Transcrevendo...")
-    segments, info = model.transcribe(
+    raw_segments, info = model.transcribe(
         video_path,
         language="pt",
         word_timestamps=True,
-        vad_filter=True,        # remove silêncios
+        vad_filter=True,
         vad_parameters={"min_silence_duration_ms": 500},
     )
 
-    words: list[WordInfo] = []
-    for seg in segments:
+    all_words:    list[WordInfo]    = []
+    all_segments: list[SegmentInfo] = []
+
+    for idx, seg in enumerate(raw_segments):
+        seg_words: list[WordInfo] = []
         if seg.words:
             for w in seg.words:
                 word_clean = w.word.strip()
                 if word_clean:
-                    words.append(WordInfo(word=word_clean, start=w.start, end=w.end))
+                    wi = WordInfo(word=word_clean, start=w.start, end=w.end)
+                    seg_words.append(wi)
+                    all_words.append(wi)
 
-    print(f"  Transcrição OK — {len(words)} palavras | duração: {info.duration:.0f}s")
-    return words
+        all_segments.append(SegmentInfo(
+            idx=idx,
+            text=seg.text.strip(),
+            start=seg.start,
+            end=seg.end,
+            words=seg_words,
+        ))
+
+    print(
+        f"  Transcrição OK — {len(all_words)} palavras | "
+        f"{len(all_segments)} frases | duração: {info.duration:.0f}s"
+    )
+    return all_words, all_segments
 
 
 # ---------------------------------------------------------------------------
-# 3. Seleção dos melhores momentos via LLM
+# 3. Seleção dos melhores momentos via LLM (baseada em segmentos de frase)
 # ---------------------------------------------------------------------------
 
-def _transcript_for_llm(words: list[WordInfo], max_chars: int = 6000) -> str:
-    """Formata a transcrição com timestamps a cada 10 palavras."""
-    lines, i = [], 0
-    while i < len(words):
-        chunk = words[i:i + 10]
-        t = chunk[0].start
-        text = " ".join(w.word for w in chunk)
-        lines.append(f"[{t:.0f}s] {text}")
-        i += 10
-    return "\n".join(lines)[:max_chars]
+def _segments_for_llm(segments: list[SegmentInfo], max_chars: int = 7000) -> str:
+    """
+    Formata os segmentos de frase do Whisper para o LLM.
+    Cada linha = 1 frase completa com índice e timestamps.
+    Ex: [12] (45.2s→48.7s) "Isso é o maior problema da inteligência artificial hoje."
+    """
+    lines = []
+    for seg in segments:
+        lines.append(f"[{seg.idx}] ({seg.start:.1f}s→{seg.end:.1f}s) \"{seg.text}\"")
+    full = "\n".join(lines)
+    return full[:max_chars]
 
 
 def select_best_clips(
+    segments: list[SegmentInfo],
     words: list[WordInfo],
     n: int = 3,
+    tema: str = "",
     target_duration: int = 60,
 ) -> list[ClipSegment]:
-    """Usa LLM para selecionar os N melhores trechos. Fallback: divisão uniforme."""
+    """
+    Usa LLM para selecionar os N melhores trechos a partir dos segmentos de frase.
+    O LLM escolhe ÍNDICES de segmento (não timestamps) → cortes sempre em boundaries naturais.
+
+    Args:
+        segments:        frases do Whisper com índice
+        words:           palavras individuais (para fallback de timestamps)
+        n:               quantidade de clipes
+        tema:            tema específico para focar os cortes (opcional)
+        target_duration: duração alvo de cada clipe em segundos
+    """
     groq_key   = os.getenv("GROQ_API_KEY", "")
     gemini_key = os.getenv("GEMINI_API_KEY", "")
 
-    if not words:
+    if not segments:
         return []
 
-    total = words[-1].end
-    transcript = _transcript_for_llm(words)
+    total       = segments[-1].end
+    transcript  = _segments_for_llm(segments)
+    max_seg_idx = segments[-1].idx
+
+    tema_instrucao = (
+        f"FOCO DO TEMA: selecione apenas trechos que falem sobre \"{tema}\".\n"
+        f"Ignore momentos que não sejam diretamente relacionados a esse tema.\n\n"
+        if tema else
+        ""
+    )
 
     prompt = (
         f"Você é um editor especialista em conteúdo viral para YouTube Shorts.\n\n"
-        f"Abaixo está a transcrição de um vídeo de {total:.0f}s com timestamps.\n"
-        f"Selecione os {n} melhores trechos para se tornarem Shorts virais.\n\n"
-        f"Critérios de um bom trecho:\n"
-        f"- Insight, revelação, afirmação forte ou momento emocional\n"
-        f"- Início e fim naturais (não corta no meio de uma ideia)\n"
-        f"- Entre {MIN_CLIP_DURATION}s e {MAX_CLIP_DURATION}s de duração\n"
-        f"- Preferencialmente com começo que prenda em 2 segundos\n\n"
-        f"TRANSCRIÇÃO:\n{transcript}\n\n"
-        f"Responda APENAS com JSON válido:\n"
-        f'[{{"start": 45, "end": 105, "reason": "motivo breve"}}, ...]\n'
-        f"start/end são inteiros em segundos."
+        f"Abaixo está a transcrição de um vídeo de {total:.0f}s dividida em frases numeradas.\n"
+        f"Selecione os {n} melhores trechos contínuos para se tornarem YouTube Shorts virais.\n\n"
+        f"{tema_instrucao}"
+        f"Critérios de seleção:\n"
+        f"- Começo que prenda em 2 segundos (frase de impacto, pergunta forte, revelação)\n"
+        f"- Trecho com ideia completa — não corta no meio de um raciocínio\n"
+        f"- Entre {MIN_CLIP_DURATION}s e {MAX_CLIP_DURATION}s de duração total\n"
+        f"- Frases consecutivas que formem uma narrativa coesa\n\n"
+        f"TRANSCRIÇÃO (índice → timestamps → frase):\n{transcript}\n\n"
+        f"Responda APENAS com JSON válido usando ÍNDICES de segmento:\n"
+        f'[{{"start_seg": 12, "end_seg": 28, "reason": "motivo breve em português"}}, ...]\n'
+        f"start_seg e end_seg são índices inteiros das frases acima (0 a {max_seg_idx}).\n"
+        f"O trecho inclui todas as frases de start_seg até end_seg (inclusive)."
     )
 
-    def _parse(text: str) -> list[ClipSegment]:
+    def _parse_to_clips(text: str) -> list[ClipSegment]:
         m = re.search(r'\[.*?\]', text, re.DOTALL)
         if not m:
             return []
@@ -222,13 +281,42 @@ def select_best_clips(
             data = json.loads(m.group())
         except json.JSONDecodeError:
             return []
+
+        seg_by_idx = {s.idx: s for s in segments}
         clips = []
+
         for item in data:
-            s = float(item.get("start", 0))
-            e = float(item.get("end", s + target_duration))
-            e = min(e, total)
-            if e - s >= MIN_CLIP_DURATION:
-                clips.append(ClipSegment(start=s, end=e, reason=item.get("reason", "")))
+            i_start = int(item.get("start_seg", 0))
+            i_end   = int(item.get("end_seg", i_start + 5))
+            i_start = max(0, min(i_start, max_seg_idx))
+            i_end   = max(i_start, min(i_end, max_seg_idx))
+
+            seg_s = seg_by_idx.get(i_start)
+            seg_e = seg_by_idx.get(i_end)
+
+            if not seg_s or not seg_e:
+                continue
+
+            start = seg_s.start
+            end   = seg_e.end
+            dur   = end - start
+
+            if dur < MIN_CLIP_DURATION:
+                continue
+            # Se ultrapassar o máximo, encurta retroativamente procurando boundary
+            if dur > MAX_CLIP_DURATION:
+                for back_idx in range(i_end, i_start, -1):
+                    seg_back = seg_by_idx.get(back_idx)
+                    if seg_back and seg_back.end - start <= MAX_CLIP_DURATION:
+                        end = seg_back.end
+                        break
+
+            clips.append(ClipSegment(
+                start=start,
+                end=end,
+                reason=item.get("reason", ""),
+            ))
+
         return clips[:n]
 
     # Groq primário
@@ -241,7 +329,7 @@ def select_best_clips(
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.2,
             )
-            clips = _parse(resp.choices[0].message.content)
+            clips = _parse_to_clips(resp.choices[0].message.content)
             if clips:
                 print(f"  [Groq] {len(clips)} trecho(s) selecionado(s)")
                 return clips
@@ -256,19 +344,19 @@ def select_best_clips(
             response = gclient.models.generate_content(
                 model="gemini-2.0-flash", contents=prompt
             )
-            clips = _parse(response.text)
+            clips = _parse_to_clips(response.text)
             if clips:
                 print(f"  [Gemini] {len(clips)} trecho(s) selecionado(s)")
                 return clips
         except Exception as e:
             print(f"  Gemini falhou: {e}")
 
-    # Fallback: divide uniformemente
+    # Fallback: divide uniformemente em N partes
     print("  LLM indisponível — divisão automática em partes iguais")
     step = (total - 30) / max(n, 1)
     return [
         ClipSegment(
-            start=max(0, i * step),
+            start=max(0.0, i * step),
             end=min(total, i * step + target_duration),
         )
         for i in range(n)
@@ -504,22 +592,33 @@ def render_clip(
 async def run_clipper(
     url: str,
     n_clips: int = 3,
-    upload: bool = True,
+    upload: bool = False,       # padrão FALSE — teste local primeiro
     privacy: str = "public",
+    tema: str = "",             # tema/assunto para focar os cortes
     on_progress=None,
     hashtags: list[str] | None = None,
     playlist_key: str = "clips",
 ) -> list[str]:
     """
-    Pipeline completo: URL YouTube → Shorts com legendas → YouTube.
-    Retorna lista de video_ids postados.
+    Pipeline completo: URL YouTube → Shorts com legendas animadas.
+
+    Por padrão upload=False — salva os clipes localmente para revisão.
+    Para postar no YouTube, passe upload=True explicitamente.
+
+    Retorna lista de caminhos locais (upload=False) ou video_ids (upload=True).
     """
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    work_dir = os.path.join(AUDIO_OUTPUT_DIR, f"clip_{ts}")
+
+    # Pasta de saída: video_news/clips/<timestamp>/ — fácil de achar
+    clips_base = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "video_news", "clips"
+    )
+    work_dir = os.path.join(clips_base, ts)
     os.makedirs(work_dir, exist_ok=True)
 
     print(f"\n--- Clipper: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')} ---")
-    print(f"  URL: {url} | clipes: {n_clips}")
+    print(f"  URL: {url}")
+    print(f"  Clipes: {n_clips} | Tema: '{tema or 'automático'}' | Upload: {upload}")
 
     # 1. Download
     print("\n[1/4] Baixando vídeo...")
@@ -540,43 +639,55 @@ async def run_clipper(
         except Exception: pass
 
     try:
-        words = transcribe_video(video_path)
+        words, whisper_segs = transcribe_video(video_path)
     except Exception as e:
         print(f"❌ Erro na transcrição: {e}")
         return []
 
-    if not words:
+    if not words or not whisper_segs:
         print("❌ Nenhuma palavra transcrita. Abortando.")
         return []
 
+    # Salva a transcrição completa em texto para revisão
+    transcript_path = os.path.join(work_dir, "transcript.txt")
+    with open(transcript_path, "w", encoding="utf-8") as f:
+        for seg in whisper_segs:
+            f.write(f"[{seg.idx}] ({seg.start:.1f}s→{seg.end:.1f}s) {seg.text}\n")
+    print(f"  Transcrição salva: {transcript_path}")
+
     # 3. Seleção de clipes
-    print(f"\n[3/4] Selecionando {n_clips} melhores momentos com LLM...")
+    tema_label = f" (tema: '{tema}')" if tema else ""
+    print(f"\n[3/4] Selecionando {n_clips} melhores momentos{tema_label}...")
     if on_progress:
         try: await on_progress(f"🤖 Selecionando {n_clips} melhores momentos...")
         except Exception: pass
 
-    segments = select_best_clips(words, n=n_clips)
-    if not segments:
+    clip_segments = select_best_clips(whisper_segs, words, n=n_clips, tema=tema)
+    if not clip_segments:
         print("❌ Nenhum segmento selecionado.")
         return []
 
-    for i, seg in enumerate(segments, 1):
-        print(f"  Clipe {i}: {seg.start:.0f}s → {seg.end:.0f}s  |  {seg.reason[:70]}")
+    print(f"\n  {'─'*50}")
+    for i, seg in enumerate(clip_segments, 1):
+        dur = seg.end - seg.start
+        print(f"  Clipe {i}: {seg.start:.1f}s → {seg.end:.1f}s  ({dur:.0f}s)")
+        print(f"           {seg.reason[:80]}")
+    print(f"  {'─'*50}")
 
-    # 4. Renderizar + upload
-    print(f"\n[4/4] Renderizando e publicando {len(segments)} clipes...")
+    # 4. Renderizar
+    print(f"\n[4/4] Renderizando {len(clip_segments)} clipes...")
     if on_progress:
-        try: await on_progress(f"🎬 Renderizando {len(segments)} clipes...")
+        try: await on_progress(f"🎬 Renderizando {len(clip_segments)} clipes...")
         except Exception: pass
 
     if hashtags is None:
         hashtags = ["Shorts", "Clips", "Podcast", "Brasil"]
 
-    uploaded_ids: list[str] = []
+    results: list[str] = []   # caminhos locais ou video_ids
 
-    for i, seg in enumerate(segments, 1):
-        print(f"\n  ── Clipe {i}/{len(segments)} ──")
-        clip_path = os.path.join(work_dir, f"clip_{i}_{ts}.mp4")
+    for i, seg in enumerate(clip_segments, 1):
+        print(f"\n  ── Clipe {i}/{len(clip_segments)} ──")
+        clip_path = os.path.join(work_dir, f"clip_{i:02d}.mp4")
 
         try:
             render_clip(video_path, seg, words, clip_path)
@@ -585,7 +696,8 @@ async def run_clipper(
             continue
 
         if not upload:
-            print(f"  Salvo localmente: {clip_path}")
+            print(f"  💾 Salvo: {clip_path}")
+            results.append(clip_path)
             continue
 
         # Título: primeiras palavras do trecho
@@ -601,7 +713,7 @@ async def run_clipper(
 
             video_id = yt_upload(clip_path, yt_title, yt_desc, hashtags, privacy=privacy)
             if video_id:
-                uploaded_ids.append(video_id)
+                results.append(video_id)
                 print(f"  ✅ https://youtu.be/{video_id}")
                 try:
                     add_to_playlist(video_id, playlist_key)
@@ -616,31 +728,35 @@ async def run_clipper(
             pass
 
         # Espaçamento entre uploads
-        if upload and i < len(segments):
+        if upload and i < len(clip_segments):
             print(f"\n  ⏳ Aguardando 10 min antes do próximo clipe...")
             await asyncio.sleep(600)
 
-    # Cleanup
+    # Remove apenas o vídeo original (clipes ficam na pasta para revisão)
     try:
-        import shutil
-        shutil.rmtree(work_dir, ignore_errors=True)
+        os.remove(video_path)
     except Exception:
         pass
 
-    # Notificação Telegram
-    try:
-        from telegram_notifier import notify
-        if uploaded_ids:
-            notify(
-                f"✂️ <b>Clipper:</b> {len(uploaded_ids)} Short(s) publicado(s)!\n"
-                f"Primeiro: https://youtu.be/{uploaded_ids[0]}"
-            )
-        elif upload:
-            notify("⚠️ <b>Clipper:</b> nenhum clipe enviado ao YouTube.")
-    except Exception:
-        pass
+    print(f"\n{'─'*50}")
+    if not upload:
+        print(f"✅ {len(results)} clipe(s) salvos em:\n   {work_dir}")
+        print(f"   Transcrição: {transcript_path}")
+    else:
+        # Notificação Telegram
+        try:
+            from telegram_notifier import notify
+            if results:
+                notify(
+                    f"✂️ <b>Clipper:</b> {len(results)} Short(s) publicado(s)!\n"
+                    f"Primeiro: https://youtu.be/{results[0]}"
+                )
+            else:
+                notify("⚠️ <b>Clipper:</b> nenhum clipe enviado ao YouTube.")
+        except Exception:
+            pass
 
-    return uploaded_ids
+    return results
 
 
 # ---------------------------------------------------------------------------
@@ -649,15 +765,17 @@ async def run_clipper(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(prog="clipper.py", add_help=True)
-    parser.add_argument("--url",        required=True, help="URL do vídeo do YouTube")
-    parser.add_argument("--clips",      type=int, default=3, help="Número de clipes (padrão 3)")
-    parser.add_argument("--sem-upload", action="store_true", help="Só gera, sem upload")
-    parser.add_argument("--privado",    action="store_true", help="Publica como privado")
+    parser.add_argument("--url",     required=True, help="URL do vídeo do YouTube")
+    parser.add_argument("--clips",   type=int, default=3, help="Número de clipes (padrão 3)")
+    parser.add_argument("--tema",    type=str, default="", help="Tema/assunto para focar os cortes")
+    parser.add_argument("--upload",  action="store_true", help="Faz upload no YouTube (padrão: só salva local)")
+    parser.add_argument("--privado", action="store_true", help="Publica como privado")
     args, _ = parser.parse_known_args()
 
     asyncio.run(run_clipper(
         url=args.url,
         n_clips=args.clips,
-        upload=not args.sem_upload,
+        tema=args.tema,
+        upload=args.upload,          # padrão False — teste seguro
         privacy="private" if args.privado else "public",
     ))
