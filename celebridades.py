@@ -168,7 +168,7 @@ def _fetch_celebridades(limit_per_site: int = 5) -> list[dict]:
 
 def _summarize_celebridade(title: str, content: str) -> str | None:
     """
-    Gera narração estilo gossip/entretenimento (~350-400 palavras).
+    Gera narração estilo gossip/entretenimento (~110-125 palavras, ~60s com CTA).
     Cadeia: Groq (primário) → Gemini (fallback) → None.
     """
     groq_key   = os.getenv("GROQ_API_KEY", "")
@@ -180,10 +180,12 @@ def _summarize_celebridade(title: str, content: str) -> str | None:
         f"Título da notícia: {title}\n"
         f"Conteúdo (use como base factual):\n{content[:3000]}\n\n"
         "REGRAS OBRIGATÓRIAS:\n"
-        "- Comece com uma frase de IMPACTO ou pergunta curiosa — prende em 2 segundos\n"
-        "- Texto entre 350 e 400 palavras (~150-160s de fala)\n"
+        "- NÃO leia o título. Comece direto com o fato mais suculento — sem apresentação\n"
+        "- Texto entre 110 e 125 palavras (o CTA será adicionado depois, totalizando ~60s)\n"
+        "- CONTEXTO: quem está ouvindo não sabe nada — diga quem é a pessoa, o que aconteceu e por que é relevante.\n"
+        "- COERÊNCIA: escolha UM fio condutor (o fato principal) e siga-o do início ao fim sem desvios.\n"
+        "  Cada frase deve decorrer naturalmente da anterior — como uma fofoca bem contada.\n"
         "- Tom: animado, leve, divertido — como fofoca entre amigas, mas sem difamar\n"
-        "- Cubra: o que aconteceu, quem está envolvido, reações, contexto, desdobramento\n"
         "- Use linguagem coloquial brasileira natural (pode usar 'olha', 'gente', 'imagina')\n"
         "- NÃO use markdown, asteriscos, hashtags, símbolos ou listas\n"
         "- NÃO invente fatos — use apenas o que está no conteúdo fornecido\n"

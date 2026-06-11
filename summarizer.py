@@ -391,7 +391,8 @@ def select_top_n_relevant(
 
 def summarize_news_for_short(category: str, title: str, content: str) -> tuple[str, str] | None:
     """
-    Gera narração longa (~350-400 palavras, ~3 min) pra Short de notícia.
+    Gera narração de ~1 minuto (~130-150 palavras) pra Short de notícia.
+    Sem leitura de título — começa direto no fato mais impactante.
     Cadeia: Groq (primário) → Gemini (fallback) → None.
 
     Retorna (narracao, categoria_corrigida) ou None se nenhum LLM funcionar.
@@ -426,12 +427,16 @@ def summarize_news_for_short(category: str, title: str, content: str) -> tuple[s
         f"   A categoria sugerida foi '{category}', mas pode estar ERRADA.\n"
         f"   Formato: CATEGORIA: <nome exato da lista>\n\n"
         "2. DEPOIS, escreva a narração:\n"
-        "- Comece com uma frase de IMPACTO (gancho — fato mais surpreendente)\n"
-        "- Texto entre 350 e 400 palavras (~150-160s de fala — próximo ao limite de 3 min)\n"
-        "- Cobertura COMPLETA: o que aconteceu, quem, quando, onde, por quê, desdobramento\n"
-        "- NÃO deixe escapar nenhum aspecto importante\n"
+        "- NÃO leia o título. NÃO apresente a notícia. Vá direto ao fato.\n"
+        "- Comece com uma frase de IMPACTO que já seja o fato em si (gancho imediato)\n"
+        "- Texto entre 110 e 125 palavras (o CTA será adicionado depois, totalizando ~60s)\n"
+        "- CONTEXTO: o ouvinte não leu nada sobre isso — a narração deve ser auto-suficiente.\n"
+        "  Mencione quem são as pessoas envolvidas, o que exatamente aconteceu e por que importa.\n"
+        "- COERÊNCIA: escolha UM fio condutor e siga-o do início ao fim. Não pule de assunto.\n"
+        "  Cada frase deve decorrer naturalmente da anterior, como uma história com começo, meio e fim.\n"
+        "- Estrutura: gancho (1 frase) → quem/o quê (1-2 frases) → por que importa (1-2 frases) → fechamento\n"
         "- NÃO use markdown, asteriscos, hashtags, símbolos ou listas\n"
-        "- NÃO mencione 'agora em [categoria]' ou similar — vá direto ao assunto\n"
+        "- NÃO mencione 'agora em [categoria]' ou similar\n"
         f"{tom_extra}"
     )
 
