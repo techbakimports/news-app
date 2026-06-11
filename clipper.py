@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -85,6 +86,8 @@ SHORTS_H          = 1920
 WORDS_PER_CHUNK   = 3     # palavras exibidas por vez na legenda
 CAPTION_FONT_SZ   = 88    # tamanho da fonte (maior = mais legível no celular)
 CAPTION_STROKE    = 5     # espessura do contorno preto nas letras
+CAPTION_PADDING   = 40    # margem mínima de cada lado (evita texto saindo da borda)
+CAPTION_LINE_GAP  = 8     # espaço entre linhas quando há quebra
 WHISPER_MODEL     = "base" # tiny | base | small | medium (base = bom custo-benefício na VPS)
 MAX_CLIP_DURATION = 89    # segundos máximos por clipe (Short limit = 3 min)
 MIN_CLIP_DURATION = 30    # segundos mínimos
@@ -221,6 +224,84 @@ def transcribe_video(video_path: str) -> tuple[list[WordInfo], list[SegmentInfo]
 
 
 # ---------------------------------------------------------------------------
+# 2b. Cache de transcrição (JSON) — evita re-transcrever o mesmo vídeo
+# ---------------------------------------------------------------------------
+
+_CACHE_DIR = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "video_news", "clips", "_cache"
+)
+
+
+def _transcript_cache_path(url: str) -> str:
+    """Retorna o caminho do arquivo de cache para uma URL."""
+    key = hashlib.md5(url.encode()).hexdigest()
+    os.makedirs(_CACHE_DIR, exist_ok=True)
+    return os.path.join(_CACHE_DIR, f"{key}.json")
+
+
+def _load_transcript_cache(url: str) -> tuple[list[WordInfo], list[SegmentInfo]] | None:
+    """
+    Carrega transcrição cacheada para a URL, se existir.
+    Retorna (words, segments) ou None se não houver cache.
+    """
+    path = _transcript_cache_path(url)
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        words = [WordInfo(**w) for w in data["words"]]
+        segments = [
+            SegmentInfo(
+                idx=s["idx"],
+                text=s["text"],
+                start=s["start"],
+                end=s["end"],
+                words=[WordInfo(**w) for w in s["words"]],
+            )
+            for s in data["segments"]
+        ]
+        cached_at = data.get("cached_at", "?")
+        print(f"  Cache de transcrição encontrado (salvo em {cached_at})")
+        print(f"  {len(words)} palavras | {len(segments)} frases — pulando Whisper")
+        return words, segments
+    except Exception as e:
+        print(f"  Cache corrompido ({e}) — re-transcrevendo")
+        return None
+
+
+def _save_transcript_cache(
+    url: str,
+    words: list[WordInfo],
+    segments: list[SegmentInfo],
+) -> None:
+    """Salva words + segments como JSON para re-uso em runs futuras."""
+    path = _transcript_cache_path(url)
+    data = {
+        "url": url,
+        "cached_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "words": [{"word": w.word, "start": w.start, "end": w.end} for w in words],
+        "segments": [
+            {
+                "idx": s.idx,
+                "text": s.text,
+                "start": s.start,
+                "end": s.end,
+                "words": [{"word": w.word, "start": w.start, "end": w.end} for w in s.words],
+            }
+            for s in segments
+        ],
+    }
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, separators=(",", ":"))
+        size_mb = os.path.getsize(path) / 1_048_576
+        print(f"  Transcrição cacheada: {path} ({size_mb:.1f} MB)")
+    except Exception as e:
+        print(f"  Aviso: não foi possível salvar cache ({e})")
+
+
+# ---------------------------------------------------------------------------
 # 3. Seleção dos melhores momentos via LLM (baseada em segmentos de frase)
 # ---------------------------------------------------------------------------
 
@@ -258,15 +339,16 @@ def select_best_clips(
     target_duration: int = 60,
 ) -> list[ClipSegment]:
     """
-    Usa LLM para selecionar os N melhores trechos a partir dos segmentos de frase.
-    O LLM escolhe ÍNDICES de segmento (não timestamps) → cortes sempre em boundaries naturais.
+    Seleção em 2 fases para cortes precisos:
 
-    Args:
-        segments:        frases do Whisper com índice
-        words:           palavras individuais (para fallback de timestamps)
-        n:               quantidade de clipes
-        tema:            tema específico para focar os cortes (opcional)
-        target_duration: duração alvo de cada clipe em segundos
+    Fase 1 (coarse) — LLM vê até 400 segmentos amostrados do vídeo inteiro e retorna
+    N tempos centrais onde o tema está mais intenso.
+
+    Fase 2 (precise) — Para cada centro, pega TODOS os segmentos reais em ±2 min e
+    pede ao LLM o start/end exato da discussão completa sobre o assunto.
+
+    Resultado: cortes que começam antes do assunto ser introduzido e terminam
+    depois da conclusão, nunca no meio de uma frase ou raciocínio.
     """
     groq_key   = os.getenv("GROQ_API_KEY", "")
     gemini_key = os.getenv("GEMINI_API_KEY", "")
@@ -275,137 +357,174 @@ def select_best_clips(
         return []
 
     total       = segments[-1].end
-    transcript  = _segments_for_llm(segments)
     max_seg_idx = segments[-1].idx
+    seg_by_idx  = {s.idx: s for s in segments}
 
-    tema_instrucao = (
-        f"FOCO DO TEMA: selecione apenas trechos que falem sobre \"{tema}\".\n"
-        f"Ignore momentos que não sejam diretamente relacionados a esse tema.\n\n"
-        if tema else
-        ""
-    )
-
-    prompt = (
-        f"Você é um editor especialista em conteúdo viral para YouTube Shorts.\n\n"
-        f"Abaixo está a transcrição de um vídeo de {total:.0f}s dividida em frases numeradas.\n"
-        f"Selecione os {n} melhores trechos contínuos para se tornarem YouTube Shorts virais.\n\n"
-        f"{tema_instrucao}"
-        f"Critérios de seleção:\n"
-        f"- Começo que prenda em 2 segundos (frase de impacto, pergunta forte, revelação)\n"
-        f"- Trecho com ideia completa — não corta no meio de um raciocínio\n"
-        f"- Entre {MIN_CLIP_DURATION}s e {MAX_CLIP_DURATION}s de duração total\n"
-        f"- Frases consecutivas que formem uma narrativa coesa\n\n"
-        f"TRANSCRIÇÃO (índice → timestamps → frase):\n{transcript}\n\n"
-        f"Responda APENAS com JSON válido usando ÍNDICES de segmento:\n"
-        f'[{{"start_seg": 12, "end_seg": 28, "reason": "motivo breve em português"}}, ...]\n'
-        f"start_seg e end_seg são índices inteiros das frases acima (0 a {max_seg_idx}).\n"
-        f"O trecho inclui todas as frases de start_seg até end_seg (inclusive)."
-    )
-
-    def _parse_to_clips(text: str) -> list[ClipSegment]:
-        m = re.search(r'\[.*?\]', text, re.DOTALL)
-        if not m:
-            return []
-        try:
-            data = json.loads(m.group())
-        except json.JSONDecodeError:
-            return []
-
-        seg_by_idx = {s.idx: s for s in segments}
-        clips = []
-
-        for item in data:
-            raw_start = item.get("start_seg")
-            raw_end   = item.get("end_seg")
-            # LLM pode retornar null/None — ignora esse item
-            if raw_start is None or raw_end is None:
-                continue
+    # ── Helper: chama Groq → Gemini, retorna texto ou None ──────────────────
+    def _call_llm(prompt: str) -> str | None:
+        if groq_key:
             try:
-                i_start = int(raw_start)
-                i_end   = int(raw_end)
-            except (TypeError, ValueError):
-                continue
-            i_start = max(0, min(i_start, max_seg_idx))
-            i_end   = max(i_start, min(i_end, max_seg_idx))
-
-            seg_s = seg_by_idx.get(i_start)
-            seg_e = seg_by_idx.get(i_end)
-
-            if not seg_s or not seg_e:
-                continue
-
-            start = seg_s.start
-            end   = seg_e.end
-            dur   = end - start
-
-            if dur < MIN_CLIP_DURATION:
-                continue
-            # Se ultrapassar o máximo, encurta retroativamente procurando boundary
-            if dur > MAX_CLIP_DURATION:
-                for back_idx in range(i_end, i_start, -1):
-                    seg_back = seg_by_idx.get(back_idx)
-                    if seg_back and seg_back.end - start <= MAX_CLIP_DURATION:
-                        end = seg_back.end
-                        break
-
-            clips.append(ClipSegment(
-                start=start,
-                end=end,
-                reason=item.get("reason", ""),
-            ))
-
-        return clips[:n]
-
-    # Groq primário
-    if groq_key:
-        try:
-            from groq import Groq
-            client = Groq(api_key=groq_key)
-            resp = client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.2,
-            )
-            clips = _parse_to_clips(resp.choices[0].message.content)
-            if clips:
-                print(f"  [Groq] {len(clips)} trecho(s) selecionado(s)")
-                return clips
-        except Exception as e:
-            print(f"  Groq falhou: {e}")
-
-    # Gemini fallback
-    if gemini_key:
-        try:
-            try:
-                from google import genai as _genai
-                gclient = _genai.Client(api_key=gemini_key)
-                response = gclient.models.generate_content(
-                    model="gemini-2.0-flash", contents=prompt
+                from groq import Groq
+                resp = Groq(api_key=groq_key).chat.completions.create(
+                    model="llama-3.3-70b-versatile",
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.2,
                 )
-                gemini_text = response.text
-            except ImportError:
-                import google.generativeai as _genai2
-                _genai2.configure(api_key=gemini_key)
-                model_g = _genai2.GenerativeModel("gemini-2.0-flash")
-                gemini_text = model_g.generate_content(prompt).text
+                return resp.choices[0].message.content
+            except Exception as e:
+                print(f"  Groq falhou: {e}")
+        if gemini_key:
+            try:
+                try:
+                    from google import genai as _genai
+                    return _genai.Client(api_key=gemini_key).models.generate_content(
+                        model="gemini-2.0-flash", contents=prompt
+                    ).text
+                except ImportError:
+                    import google.generativeai as _genai2
+                    _genai2.configure(api_key=gemini_key)
+                    return _genai2.GenerativeModel("gemini-2.0-flash").generate_content(prompt).text
+            except Exception as e:
+                print(f"  Gemini falhou: {e}")
+        return None
 
-            clips = _parse_to_clips(gemini_text)
-            if clips:
-                print(f"  [Gemini] {len(clips)} trecho(s) selecionado(s)")
-                return clips
-        except Exception as e:
-            print(f"  Gemini falhou: {e}")
+    # ── Helper: converte range de índices em ClipSegment respeitando limites ─
+    def _clip_from_idx(i_start: int, i_end: int, reason: str = "") -> ClipSegment | None:
+        i_start = max(0, min(i_start, max_seg_idx))
+        i_end   = max(i_start, min(i_end, max_seg_idx))
+        seg_s = seg_by_idx.get(i_start)
+        seg_e = seg_by_idx.get(i_end)
+        if not seg_s or not seg_e:
+            return None
+        start = seg_s.start
+        end   = seg_e.end
+        if end - start < MIN_CLIP_DURATION:
+            return None
+        if end - start > MAX_CLIP_DURATION:
+            for back in range(i_end, i_start, -1):
+                sb = seg_by_idx.get(back)
+                if sb and sb.end - start <= MAX_CLIP_DURATION:
+                    end = sb.end
+                    break
+        return ClipSegment(start=start, end=end, reason=reason)
 
-    # Fallback: divide uniformemente em N partes
-    print("  LLM indisponível — divisão automática em partes iguais")
-    step = (total - 30) / max(n, 1)
-    return [
-        ClipSegment(
-            start=max(0.0, i * step),
-            end=min(total, i * step + target_duration),
+    # ── Fase 1: coarse — identifica N tempos centrais no vídeo inteiro ───────
+    tema_inst = (
+        f"FOCO DO TEMA: apenas trechos diretamente relacionados a \"{tema}\".\n\n"
+        if tema else ""
+    )
+    coarse_prompt = (
+        f"Você é um editor de YouTube Shorts especializado em conteúdo viral.\n\n"
+        f"Transcrição amostrada de um vídeo de {total:.0f}s (frases do vídeo inteiro):\n"
+        f"{_segments_for_llm(segments)}\n\n"
+        f"{tema_inst}"
+        f"Identifique os {n} momentos mais virais e impactantes. "
+        f"Para cada um, retorne o tempo (em segundos) onde o assunto está mais intenso.\n\n"
+        f"Responda APENAS JSON:\n"
+        f'[{{"center_time": 1234, "reason": "descrição do assunto em português"}}, ...]\n'
+        f"center_time: número inteiro de segundos (0 a {int(total)})."
+    )
+
+    coarse_text = _call_llm(coarse_prompt)
+    coarse_regions: list[dict] = []
+    if coarse_text:
+        m = re.search(r'\[.*?\]', coarse_text, re.DOTALL)
+        if m:
+            try:
+                for item in json.loads(m.group()):
+                    ct = item.get("center_time")
+                    if ct is not None:
+                        coarse_regions.append({
+                            "center_time": max(0.0, min(float(ct), total)),
+                            "reason": item.get("reason", ""),
+                        })
+            except Exception:
+                pass
+
+    if not coarse_regions:
+        print("  LLM indisponível — divisão automática em partes iguais")
+        step = (total - 30) / max(n, 1)
+        return [
+            ClipSegment(
+                start=max(0.0, i * step),
+                end=min(total, i * step + target_duration),
+            )
+            for i in range(n)
+        ]
+
+    print(f"  [Fase 1] {len(coarse_regions)} região(ões) identificada(s)")
+
+    # ── Fase 2: precise — corte exato em janela completa ±2 min ─────────────
+    clips: list[ClipSegment] = []
+    window = max(target_duration + 30, 120)   # segundos de cada lado do centro
+
+    for region in coarse_regions[:n]:
+        center = region["center_time"]
+        reason = region["reason"]
+
+        # Todos os segmentos reais no intervalo — sem amostragem
+        local_segs = [s for s in segments if center - window <= s.start <= center + window]
+        if not local_segs:
+            local_segs = [s for s in segments
+                          if abs(s.start - center) == min(abs(s2.start - center) for s2 in segments)]
+
+        local_text = "\n".join(
+            f'[{s.idx}] ({s.start:.0f}s->{s.end:.0f}s) "{s.text.replace(chr(34), chr(39))}"'
+            for s in local_segs
         )
-        for i in range(n)
-    ]
+        lo_idx = local_segs[0].idx
+        hi_idx = local_segs[-1].idx
+
+        tema_local = f"Foco no tema: \"{tema}\".\n" if tema else ""
+        precise_prompt = (
+            f"Você é um editor de vídeo. Trecho de um podcast ao redor do tempo {center:.0f}s.\n\n"
+            f"{tema_local}"
+            f"Assunto identificado: \"{reason}\"\n\n"
+            f"Encontre o corte que captura essa discussão COMPLETA:\n"
+            f"- Comece ANTES de o assunto ser introduzido (não no meio de uma fala)\n"
+            f"- Termine DEPOIS da conclusão do raciocínio (não corte antes do fim)\n"
+            f"- Duração entre {MIN_CLIP_DURATION}s e {MAX_CLIP_DURATION}s\n"
+            f"- Prefira frases de impacto ou revelação para começar\n\n"
+            f"TRANSCRIÇÃO COMPLETA desta região:\n{local_text}\n\n"
+            f"Responda APENAS JSON com índices reais desta transcrição:\n"
+            f'[{{"start_seg": {lo_idx}, "end_seg": {hi_idx}, "reason": "motivo do corte"}}]\n'
+            f"Use índices inteiros de {lo_idx} a {hi_idx}."
+        )
+
+        precise_text = _call_llm(precise_prompt)
+        added = False
+        if precise_text:
+            m = re.search(r'\[.*?\]', precise_text, re.DOTALL)
+            if m:
+                try:
+                    for item in json.loads(m.group()):
+                        rs = item.get("start_seg")
+                        re_ = item.get("end_seg")
+                        if rs is None or re_ is None:
+                            continue
+                        clip = _clip_from_idx(int(rs), int(re_), item.get("reason", reason))
+                        if clip:
+                            clips.append(clip)
+                            print(
+                                f"  [Fase 2] {clip.start:.0f}s → {clip.end:.0f}s "
+                                f"({clip.end - clip.start:.0f}s) | {clip.reason[:60]}"
+                            )
+                            added = True
+                            break
+                except Exception:
+                    pass
+
+        if not added:
+            # Fallback: centro ± metade da duração alvo
+            fb = ClipSegment(
+                start=max(0.0, center - target_duration / 2),
+                end=min(total, center + target_duration / 2),
+                reason=reason,
+            )
+            clips.append(fb)
+            print(f"  [Fase 2 fallback] {fb.start:.0f}s → {fb.end:.0f}s")
+
+    return clips[:n]
 
 
 # ---------------------------------------------------------------------------
@@ -493,41 +612,62 @@ def _render_caption_frame(
 ) -> np.ndarray:
     """
     Renderiza um frame RGBA com o chunk de palavras em estilo Opus Clip:
-    - Texto em MAIÚSCULAS
-    - Palavra ativa: amarelo vibrante
-    - Demais palavras: branco
-    - Contorno preto em todas as letras (sem pílula de fundo — legível em qualquer cena)
+    - Texto em MAIÚSCULAS, sempre visível dentro das bordas
+    - Quebra automática de linha se o texto não cabe na largura
+    - Palavra ativa: amarelo vibrante; demais: branco
+    - Contorno preto em todas as letras
     """
     img  = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
 
-    # Uppercases todas as palavras
     upper_words = [word.upper() for word in state.words]
+    available_w = w - 2 * CAPTION_PADDING
 
-    # Mede largura de cada palavra em maiúsculo (com espaço)
-    word_widths = []
-    for word in upper_words:
+    # Mede largura de cada palavra (com espaço incluído)
+    def _ww(word: str) -> int:
         bb = draw.textbbox((0, 0), word + " ", font=font)
-        word_widths.append(bb[2] - bb[0])
+        return bb[2] - bb[0]
 
-    total_text_w = sum(word_widths)
+    word_widths = [_ww(word) for word in upper_words]
 
-    # Posição: centralizado horizontalmente, 75% da altura
-    x = (w - total_text_w) // 2
-    y = int(h * 0.75)
-
-    # Renderiza cada palavra com contorno preto + cor da palavra
+    # Agrupa palavras em linhas que caibam dentro de available_w
+    lines: list[list[tuple[str, int, int]]] = []  # (word, width, original_idx)
+    current_line: list[tuple[str, int, int]] = []
+    current_w = 0
     for i, (word, ww) in enumerate(zip(upper_words, word_widths)):
-        color = (255, 220, 0, 255) if i == state.active_idx else (255, 255, 255, 255)
-        draw.text(
-            (x, y),
-            word,
-            font=font,
-            fill=color,
-            stroke_width=CAPTION_STROKE,
-            stroke_fill=(0, 0, 0, 255),
-        )
-        x += ww
+        if current_w + ww > available_w and current_line:
+            lines.append(current_line)
+            current_line = [(word, ww, i)]
+            current_w = ww
+        else:
+            current_line.append((word, ww, i))
+            current_w += ww
+    if current_line:
+        lines.append(current_line)
+
+    # Altura de uma linha
+    line_h = draw.textbbox((0, 0), "A", font=font)[3]
+
+    total_block_h = len(lines) * line_h + (len(lines) - 1) * CAPTION_LINE_GAP
+    y = int(h * 0.75) - total_block_h // 2
+
+    for line in lines:
+        line_w = sum(ww for _, ww, _ in line)
+        x = max(CAPTION_PADDING, (w - line_w) // 2)
+
+        for word, ww, orig_idx in line:
+            color = (255, 220, 0, 255) if orig_idx == state.active_idx else (255, 255, 255, 255)
+            draw.text(
+                (x, y),
+                word,
+                font=font,
+                fill=color,
+                stroke_width=CAPTION_STROKE,
+                stroke_fill=(0, 0, 0, 255),
+            )
+            x += ww
+
+        y += line_h + CAPTION_LINE_GAP
 
     return np.array(img)
 
@@ -642,6 +782,7 @@ async def run_clipper(
     on_progress=None,
     hashtags: list[str] | None = None,
     playlist_key: str = "clips",
+    video_file: str = "",       # caminho de vídeo já baixado (pula o download)
 ) -> list[str]:
     """
     Pipeline completo: URL YouTube → Shorts com legendas animadas.
@@ -664,33 +805,45 @@ async def run_clipper(
     print(f"  URL: {url}")
     print(f"  Clipes: {n_clips} | Tema: '{tema or 'automático'}' | Upload: {upload}")
 
-    # 1. Download
+    # 1. Download (ou usa vídeo local se --video foi passado)
     print("\n[1/4] Baixando vídeo...")
     if on_progress:
         try: await on_progress("⬇️ Baixando vídeo do YouTube...")
         except Exception: pass
 
-    try:
-        video_path = download_youtube_video(url, work_dir)
-    except Exception as e:
-        print(f"❌ Erro no download: {e}")
-        return []
+    if video_file and os.path.exists(video_file):
+        video_path = video_file
+        size_mb = os.path.getsize(video_path) / 1_048_576
+        print(f"  Usando vídeo local: {os.path.basename(video_path)} ({size_mb:.1f} MB)")
+    else:
+        try:
+            video_path = download_youtube_video(url, work_dir)
+        except Exception as e:
+            print(f"❌ Erro no download: {e}")
+            return []
 
-    # 2. Transcrição
+    # 2. Transcrição (com cache)
     print("\n[2/4] Transcrevendo áudio (Whisper)...")
     if on_progress:
         try: await on_progress("🎙️ Transcrevendo com Whisper...")
         except Exception: pass
 
-    try:
-        words, whisper_segs = transcribe_video(video_path)
-    except Exception as e:
-        print(f"❌ Erro na transcrição: {e}")
-        return []
+    cached = _load_transcript_cache(url)
+    if cached:
+        words, whisper_segs = cached
+    else:
+        try:
+            words, whisper_segs = transcribe_video(video_path)
+        except Exception as e:
+            print(f"❌ Erro na transcrição: {e}")
+            return []
 
-    if not words or not whisper_segs:
-        print("❌ Nenhuma palavra transcrita. Abortando.")
-        return []
+        if not words or not whisper_segs:
+            print("❌ Nenhuma palavra transcrita. Abortando.")
+            return []
+
+        # Salva cache JSON para re-runs futuros (mesma URL = skip Whisper)
+        _save_transcript_cache(url, words, whisper_segs)
 
     # Salva a transcrição completa em texto para revisão
     transcript_path = os.path.join(work_dir, "transcript.txt")
@@ -776,11 +929,12 @@ async def run_clipper(
             print(f"\n  ⏳ Aguardando 10 min antes do próximo clipe...")
             await asyncio.sleep(600)
 
-    # Remove apenas o vídeo original (clipes ficam na pasta para revisão)
-    try:
-        os.remove(video_path)
-    except Exception:
-        pass
+    # Remove o vídeo baixado (não remove se foi fornecido via --video)
+    if not video_file:
+        try:
+            os.remove(video_path)
+        except Exception:
+            pass
 
     print(f"\n{'-'*50}")
     if not upload:
@@ -814,6 +968,7 @@ if __name__ == "__main__":
     parser.add_argument("--tema",    type=str, default="", help="Tema/assunto para focar os cortes")
     parser.add_argument("--upload",  action="store_true", help="Faz upload no YouTube (padrão: só salva local)")
     parser.add_argument("--privado", action="store_true", help="Publica como privado")
+    parser.add_argument("--video",   type=str, default="", help="Caminho de vídeo local (pula download)")
     args, _ = parser.parse_known_args()
 
     asyncio.run(run_clipper(
@@ -822,4 +977,5 @@ if __name__ == "__main__":
         tema=args.tema,
         upload=args.upload,          # padrão False — teste seguro
         privacy="private" if args.privado else "public",
+        video_file=args.video,
     ))
