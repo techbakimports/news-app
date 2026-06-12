@@ -241,7 +241,8 @@ async def run_news_cycle(on_progress=None):
             "compartilha com quem precisa saber, e se inscreve no canal "
             "pra receber as notícias do dia em formato Short."
         )
-        narracao_final = item["narracao"].rstrip() + cta
+        _INTRO = "News App aqui, sua notícia em 1 minuto."
+        narracao_final = _INTRO + " " + item["narracao"].rstrip() + cta
 
         cat_hashtags = ["Shorts", "Notícias", "Brasil", cat.replace(" ", "")]
 

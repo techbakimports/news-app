@@ -377,7 +377,7 @@ async def generate_short_from_text(
     # Limita narração ao máximo de palavras pro Short (~3 min)
     words = clean_text(narration).split()
     summary = " ".join(words[:MAX_WORDS_SHORT])
-    narration_full = f"{title}. {summary}"
+    narration_full = summary
 
     print(f"\n  Short: {title[:60]}...")
     print(f"  Voz: {selected_voice}")
