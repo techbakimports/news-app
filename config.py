@@ -77,11 +77,10 @@ CATEGORY_VOICES = {
     # fallback implícito: TTS_VOICE (Antonio) para qualquer categoria não listada
 }
 
-# Diretório de sync — define via variável de ambiente para portabilidade.
-# Windows padrão: J:\Meu Drive\News-app (Google Drive Desktop)
-# Linux padrão: ~/news-app-drive  (ou monte o Drive com rclone)
-_drive_default = r"J:\Meu Drive\News-app" if os.name == "nt" else os.path.expanduser("~/news-app-drive")
-DRIVE_SYNC_DIR = os.environ.get("DRIVE_SYNC_DIR", _drive_default)
+DRIVE_SYNC_DIR = os.environ.get(
+    "DRIVE_SYNC_DIR",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "roteiros"),
+)
 
 # Configurações de Vídeo
 VIDEO_OUTPUT_DIR = "./video_news"

@@ -29,6 +29,9 @@ ENV/
 # Generated outputs
 audio_news/
 news_sync/
+shorts_videos/
+video_news/
+roteiros/
 *.mp3
 *.mp4
 *.wav
