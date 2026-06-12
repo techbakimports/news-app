@@ -14,6 +14,7 @@ Uso:
 import argparse
 import asyncio
 import logging
+from logging.handlers import RotatingFileHandler
 import os
 import urllib.parse
 from datetime import datetime
@@ -40,7 +41,7 @@ logging.basicConfig(
     format="%(asctime)s %(message)s",
     datefmt="%H:%M:%S",
     handlers=[
-        logging.FileHandler(_log_file, encoding="utf-8"),
+        RotatingFileHandler(_log_file, maxBytes=5*1024*1024, backupCount=2, encoding="utf-8"),
         logging.StreamHandler(),
     ],
 )

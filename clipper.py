@@ -24,6 +24,7 @@ import asyncio
 import hashlib
 import json
 import logging
+from logging.handlers import RotatingFileHandler
 import os
 import re
 import subprocess
@@ -53,7 +54,7 @@ logging.basicConfig(
     format="%(asctime)s %(message)s",
     datefmt="%H:%M:%S",
     handlers=[
-        logging.FileHandler(os.path.join(_LOG_DIR, "clipper.log"), encoding="utf-8"),
+        RotatingFileHandler(os.path.join(_LOG_DIR, "clipper.log"), maxBytes=5*1024*1024, backupCount=2, encoding="utf-8"),
         logging.StreamHandler(),
     ],
 )
