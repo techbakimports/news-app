@@ -84,7 +84,7 @@ def _call_groq_batch(prompt, n):
 
 
 def summarize_news(category, title, content):
-    """Resume uma única notícia. Mantido para compatibilidade com test_run.py."""
+    """Resume uma única notícia via Gemini."""
     if not gemini_key:
         return "Resumo indisponível (chave de API não configurada)."
     try:
