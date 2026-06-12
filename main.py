@@ -25,7 +25,7 @@ load_dotenv()
 
 from fetcher import fetch_latest_news, extract_article_content, select_unique_news
 from summarizer import summarize_news_for_short, select_most_relevant
-from config import DRIVE_SYNC_DIR, AUDIO_OUTPUT_DIR, NEWS_SHORTS_CATEGORIES
+from config import DRIVE_SYNC_DIR, AUDIO_OUTPUT_DIR, VIDEO_OUTPUT_DIR, NEWS_SHORTS_CATEGORIES
 
 # Logging — monitorar com: tail -f logs/noticias.log
 _LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
@@ -61,10 +61,12 @@ CLEANUP_HOURS = 24
 
 
 def cleanup_old_files():
-    """Apaga arquivos antigos no Drive e na pasta de áudio."""
+    """Apaga arquivos e pastas gerados com mais de CLEANUP_HOURS horas."""
+    import shutil
     now = time.time()
     cutoff = now - (CLEANUP_HOURS * 3600)
 
+    # Arquivos soltos (Drive sync + áudio)
     for folder in [DRIVE_SYNC_DIR, AUDIO_OUTPUT_DIR]:
         if not os.path.exists(folder):
             continue
@@ -76,6 +78,32 @@ def cleanup_old_files():
                     print(f"Arquivo antigo removido: {f}")
                 except Exception as e:
                     print(f"Erro ao remover {f}: {e}")
+
+    # Vídeos de Shorts órfãos (upload falhou ou --sem-upload)
+    shorts_dir = "./shorts_videos"
+    if os.path.exists(shorts_dir):
+        for f in os.listdir(shorts_dir):
+            path = os.path.join(shorts_dir, f)
+            if os.path.isfile(path) and os.path.getmtime(path) < cutoff:
+                try:
+                    os.remove(path)
+                    print(f"Short órfão removido: {f}")
+                except Exception as e:
+                    print(f"Erro ao remover short {f}: {e}")
+
+    # Subpastas do clipper em video_news/clips/<YYYYMMDD_HHMMSS>/ (preserva _cache/)
+    clips_dir = os.path.join(VIDEO_OUTPUT_DIR, "clips")
+    if os.path.exists(clips_dir):
+        for entry in os.listdir(clips_dir):
+            if entry == "_cache":
+                continue
+            path = os.path.join(clips_dir, entry)
+            if os.path.isdir(path) and os.path.getmtime(path) < cutoff:
+                try:
+                    shutil.rmtree(path)
+                    print(f"Pasta de clips antiga removida: {entry}")
+                except Exception as e:
+                    print(f"Erro ao remover pasta {entry}: {e}")
 
 
 # -- Pipeline principal --------------------------------------------------------
