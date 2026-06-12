@@ -571,72 +571,6 @@ async def _run_pipeline(chat_id: int, bot, cmd: list, descricao: str, msg=None) 
     await _editar(texto)
 
 
-async def _run_gemini_check(chat_id: int, bot, msg) -> None:
-    """Verifica status da cota Gemini fazendo uma chamada teste."""
-    try:
-        await msg.edit_text(
-            "📊 <b>Status Gemini</b>\n\n⏳ Verificando cota...\n"
-            "<i>(uma chamada teste será feita — gasta 1 da cota diária)</i>",
-            parse_mode="HTML",
-        )
-    except Exception:
-        msg = await bot.send_message(
-            chat_id, "📊 <b>Status Gemini</b>\n\n⏳ Verificando...", parse_mode="HTML",
-        )
-
-    try:
-        from notebooklm_session import check_gemini_quota
-        result = await asyncio.to_thread(check_gemini_quota, False)
-    except Exception as e:
-        await _safe_edit(msg, f"📊 <b>Status Gemini</b>\n\n⚠️ Erro ao verificar: {html_escape(str(e))}")
-        return
-
-    status = result.get("status", "error")
-    msg_txt = result.get("message", "")
-
-    if status == "ok":
-        text = (
-            f"📊 <b>Status Gemini</b>\n\n"
-            f"🟢 <b>Cota disponível</b>\n\n"
-            f"{html_escape(msg_txt)}\n\n"
-            f"<i>Plano free: 20 reqs/dia, 5 reqs/min</i>"
-        )
-    elif status == "per_day":
-        text = (
-            f"📊 <b>Status Gemini</b>\n\n"
-            f"🔴 <b>Cota DIÁRIA esgotada</b>\n\n"
-            f"{html_escape(msg_txt)}\n\n"
-            f"<b>Impacto agora:</b>\n"
-            f"• Notícias: fallback automático pra Groq (se configurado)\n"
-            f"• Curiosidades: vai falhar\n"
-            f"• Shorts standalone: vai falhar\n\n"
-            f"<i>Aguarde reset à meia-noite PT (~4h da manhã BR).</i>"
-        )
-    elif status == "per_minute":
-        retry = result.get("retry_in") or 60
-        text = (
-            f"📊 <b>Status Gemini</b>\n\n"
-            f"🟡 <b>Rate limit por minuto</b>\n\n"
-            f"{html_escape(msg_txt)}\n\n"
-            f"Aguarde ~{retry}s e tente novamente."
-        )
-    elif status == "no_key":
-        text = (
-            f"📊 <b>Status Gemini</b>\n\n"
-            f"❌ <b>Sem API key</b>\n\n"
-            f"Adicione <code>GEMINI_API_KEY=...</code> no <code>.env</code>"
-        )
-    else:
-        text = (
-            f"📊 <b>Status Gemini</b>\n\n"
-            f"⚠️ <b>Erro</b>\n\n{html_escape(msg_txt)}"
-        )
-
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔄 Verificar novamente", callback_data="run|gemini_check")],
-        [InlineKeyboardButton("⬅️ Voltar",              callback_data="nav|main")],
-    ])
-    await _safe_edit(msg, text, reply_markup=kb)
 
 
 # ── tech digest (execução inline, não subprocess) ────────────────────────────
@@ -1110,49 +1044,6 @@ async def _handle_run(q, context, parts: list, force: bool = False) -> None:
             await q.edit_message_text(text, reply_markup=kb, parse_mode="HTML")
         except Exception:
             await context.bot.send_message(chat_id, text, reply_markup=kb, parse_mode="HTML")
-        return
-
-    # ── verificação pré-pipeline ─────────────────────────────────────────────
-    if not force:
-        info = _get_pipeline_info(parts)
-        if info:
-            try:
-                from notebooklm_session import preflight_check
-                result = await asyncio.to_thread(preflight_check, info[0], info[1], False)
-                if result["critical"]:
-                    text = "❌ <b>Verificação pré-pipeline</b>\n\n"
-                    for c in result["critical"]:
-                        text += f"• {html_escape(c)}\n"
-                    if result["warnings"]:
-                        text += f"\n⚠️ <b>Avisos:</b>\n"
-                        for w in result["warnings"]:
-                            text += f"• {html_escape(w)}\n"
-
-                    force_data = "force|" + "|".join(parts)
-                    back_map = {
-                        "noticias": "nav|noticias",
-                        "curiosidades": "nav|curiosidades",
-                        "audio": "nav|audio", "shorts": "nav|shorts",
-                    }
-                    back = back_map.get(tipo, "nav|main")
-
-                    kb = InlineKeyboardMarkup([
-                        [InlineKeyboardButton("▶️ Iniciar mesmo assim", callback_data=force_data)],
-                        [InlineKeyboardButton("⬅️ Voltar", callback_data=back)],
-                    ])
-                    try:
-                        await q.edit_message_text(text, reply_markup=kb, parse_mode="HTML")
-                    except Exception:
-                        await context.bot.send_message(chat_id, text, reply_markup=kb, parse_mode="HTML")
-                    return
-            except ImportError:
-                pass
-            except Exception:
-                pass  # erro no preflight não deve bloquear o pipeline
-
-    # -- status Gemini (cota) --
-    if tipo == "gemini_check":
-        asyncio.create_task(_run_gemini_check(chat_id, context.bot, q.message))
         return
 
     # -- tech digest --

@@ -241,15 +241,10 @@ def _parse_horarios(texto: str) -> list[str] | None:
     return visto
 
 
-def _cmd_noticias(privado, plataforma="ambos"):
-    """plataforma: 'ambos' | 'youtube' | 'tiktok'"""
+def _cmd_noticias(privado, plataforma="youtube"):
     script = os.path.join(BASE_DIR, "main.py")
     cd = f"cd {BASE_DIR} &&" if not IS_WINDOWS else ""
     cmd = f'{cd} "{PYTHON}" "{script}"'
-    if plataforma == "youtube":
-        cmd += " --apenas-youtube"
-    elif plataforma == "tiktok":
-        cmd += " --apenas-tiktok"
     if privado:
         cmd += " --privado"
     return cmd
@@ -262,15 +257,10 @@ def _cmd_audio(tipo, horas, privado):
     return cmd + " --privado" if privado else cmd
 
 
-def _cmd_curiosidades(privado, plataforma="ambos"):
-    """plataforma: 'ambos' | 'youtube' | 'tiktok'"""
+def _cmd_curiosidades(privado, plataforma="youtube"):
     script = os.path.join(BASE_DIR, "curiosidades.py")
     cd = f"cd {BASE_DIR} &&" if not IS_WINDOWS else ""
     cmd = f'{cd} "{PYTHON}" "{script}"'
-    if plataforma == "youtube":
-        cmd += " --apenas-youtube"
-    elif plataforma == "tiktok":
-        cmd += " --apenas-tiktok"
     if privado:
         cmd += " --privado"
     return cmd
@@ -305,12 +295,7 @@ def _configurar_noticias(cfg):
 
 
 def _perguntar_plataforma():
-    print("  Plataforma:")
-    print("    1. YouTube + TikTok (padrão)")
-    print("    2. Apenas YouTube")
-    print("    3. Apenas TikTok")
-    op = input("  Escolha (padrão 1): ").strip() or "1"
-    return {"1": "ambos", "2": "youtube", "3": "tiktok"}.get(op, "ambos")
+    return "youtube"
 
 
 def _configurar_curiosidades(cfg):
@@ -333,7 +318,7 @@ def _configurar_curiosidades(cfg):
         _criar_agendamento("curiosidades", _cmd_curiosidades(privado, plataforma), horarios)
         cfg["curiosidades"] = {"ativo": True, "horarios": horarios, "privado": privado, "plataforma": plataforma}
         _salvar_cfg(cfg)
-        labels = {"ambos": "YouTube + TikTok", "youtube": "apenas YouTube", "tiktok": "apenas TikTok"}
+        labels = {"youtube": "apenas YouTube", "ambos": "apenas YouTube"}
         print(f"\n  Curiosidades agendadas para: {', '.join(horarios)} ({labels[plataforma]}).")
     except subprocess.CalledProcessError as e:
         stderr = e.stderr.decode(errors="replace") if isinstance(e.stderr, bytes) else (e.stderr or "")
@@ -491,20 +476,6 @@ def perguntar_upload():
 
 
 def rodar(cmd, descricao, pipeline=None, upload=True):
-    if pipeline:
-        try:
-            from notebooklm_session import preflight_check
-            check = preflight_check(pipeline, upload=upload)
-            if not check["ok"]:
-                op = input("  Iniciar mesmo assim? (s/N): ").strip().lower()
-                if op != "s":
-                    print("\n  Pipeline cancelado.")
-                    aguardar()
-                    return
-            elif check["warnings"]:
-                input("  Pressione Enter para continuar...")
-        except ImportError:
-            pass
         except Exception as e:
             print(f"\n  Aviso: erro na verificação pré-pipeline: {e}")
             print("  Continuando mesmo assim...\n")
@@ -530,31 +501,20 @@ def menu_noticias():
         print("    • Cada Short ~3 min com CTA")
         print("    • Sem vídeo longo")
         print()
-        print("  1.  YouTube + TikTok (público)")
-        print("  2.  Apenas YouTube (público)")
-        print("  3.  Apenas TikTok")
-        print("  4.  YouTube privado (+ TikTok)")
-        print("  5.  Só gerar (sem upload)")
+        print("  1.  YouTube (público)")
+        print("  2.  YouTube privado")
+        print("  3.  Só gerar (sem upload)")
         print()
         print("  0.  Voltar")
         print()
         op = input("  Escolha: ").strip()
 
         if op == "1":
-            rodar([PYTHON, "main.py"],
-                  "Notícias → YouTube + TikTok público", pipeline="noticias")
+            rodar([PYTHON, "main.py"], "Notícias → YouTube público", pipeline="noticias")
         elif op == "2":
-            rodar([PYTHON, "main.py", "--apenas-youtube"],
-                  "Notícias → apenas YouTube público", pipeline="noticias")
+            rodar([PYTHON, "main.py", "--privado"], "Notícias → YouTube privado", pipeline="noticias")
         elif op == "3":
-            rodar([PYTHON, "main.py", "--apenas-tiktok"],
-                  "Notícias → apenas TikTok", pipeline="noticias")
-        elif op == "4":
-            rodar([PYTHON, "main.py", "--privado"],
-                  "Notícias → YouTube privado + TikTok", pipeline="noticias")
-        elif op == "5":
-            rodar([PYTHON, "main.py", "--sem-upload"],
-                  "Notícias (sem upload)", pipeline="noticias", upload=False)
+            rodar([PYTHON, "main.py", "--sem-upload"], "Notícias (sem upload)", pipeline="noticias", upload=False)
         elif op == "0":
             return
         else:
@@ -689,31 +649,20 @@ def menu_curiosidades():
         print("  Pipeline: Groq/Gemini gera curiosidade aleatoria -> Short")
         print("  (1 Short por execucao, tema sempre novo, ~2m30s + CTA)")
         print()
-        print("  1.  YouTube + TikTok (publico)")
-        print("  2.  Apenas YouTube (publico)")
-        print("  3.  Apenas TikTok")
-        print("  4.  YouTube privado (+ TikTok)")
-        print("  5.  So gerar (sem upload)")
+        print("  1.  YouTube (publico)")
+        print("  2.  YouTube privado")
+        print("  3.  So gerar (sem upload)")
         print()
         print("  0.  Voltar")
         print()
         op = input("  Escolha: ").strip()
 
         if op == "1":
-            rodar([PYTHON, "curiosidades.py"],
-                  "Curiosidade -> YouTube + TikTok publico", pipeline="curiosidades")
+            rodar([PYTHON, "curiosidades.py"], "Curiosidade -> YouTube publico", pipeline="curiosidades")
         elif op == "2":
-            rodar([PYTHON, "curiosidades.py", "--apenas-youtube"],
-                  "Curiosidade -> apenas YouTube publico", pipeline="curiosidades")
+            rodar([PYTHON, "curiosidades.py", "--privado"], "Curiosidade -> YouTube privado", pipeline="curiosidades")
         elif op == "3":
-            rodar([PYTHON, "curiosidades.py", "--apenas-tiktok"],
-                  "Curiosidade -> apenas TikTok", pipeline="curiosidades")
-        elif op == "4":
-            rodar([PYTHON, "curiosidades.py", "--privado"],
-                  "Curiosidade -> YouTube privado + TikTok", pipeline="curiosidades")
-        elif op == "5":
-            rodar([PYTHON, "curiosidades.py", "--sem-upload"],
-                  "Curiosidade (sem upload)", pipeline="curiosidades", upload=False)
+            rodar([PYTHON, "curiosidades.py", "--sem-upload"], "Curiosidade (sem upload)", pipeline="curiosidades", upload=False)
         elif op == "0":
             return
         else:
@@ -723,7 +672,7 @@ def menu_curiosidades():
 def menu_tech_news():
     while True:
         cabecalho("-- TECH SHORTS --")
-        print("  Pipeline: Google News (10 sites tech) -> Groq/Gemini -> N Shorts -> YouTube + TikTok")
+        print("  Pipeline: Google News (10 sites tech) -> Groq/Gemini -> N Shorts -> YouTube")
         print("  (SEM video longo — apenas Shorts verticais)")
         print()
         print("  1.  Executar pipeline (publica como publico)")
@@ -735,7 +684,7 @@ def menu_tech_news():
         op = input("  Escolha: ").strip()
 
         if op == "1":
-            rodar([PYTHON, "tech_news.py"], "Tech Shorts -> YouTube + TikTok publico", pipeline="tech_news")
+            rodar([PYTHON, "tech_news.py"], "Tech Shorts -> YouTube publico", pipeline="tech_news")
         elif op == "2":
             rodar([PYTHON, "tech_news.py", "--sem-upload"], "Tech Shorts (sem upload)", pipeline="tech_news", upload=False)
         elif op == "3":
@@ -836,26 +785,7 @@ def main():
                 print("      INSTAGRAM_PASSWORD=sua_senha")
 
             print()
-
-            # TikTok
-            from tiktok_publisher import TIKTOK_ENABLED
-            print("  TIKTOK")
-            if TIKTOK_ENABLED:
-                print("    Status: ATIVO")
-                print("    Cookies configurados")
-            else:
-                print("    Status: INATIVO")
-                print("    Para ativar:")
-                print("      1. Faça login no TikTok pelo navegador")
-                print("      2. Exporte cookies (extensão 'Get cookies.txt LOCALLY')")
-                print("      3. Salve como credentials/tiktok_cookies.json")
-
-            print()
-            print("  Ao publicar Shorts, o upload é automático para:")
-            print("    YouTube → Instagram (Reel) → TikTok")
-            print()
-            print("  No pipeline completo de Notícias, é gerado 1 Short")
-            print("  por categoria (exceto Esporte) a partir do vídeo longo.")
+            print("  Ao publicar Shorts, o upload vai para YouTube + Instagram (Reel).")
             aguardar()
         elif op == "0":
             cls()
