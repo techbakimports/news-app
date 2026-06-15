@@ -228,8 +228,7 @@ def select_most_relevant(
     def _parse_index(text: str) -> int | None:
         """Extrai índice 1-based da resposta do LLM."""
         text = text.strip()
-        import re as _re
-        m = _re.search(r"\b([1-9]\d*)\b", text)
+        m = re.search(r"\b([1-9]\d*)\b", text)
         if m:
             idx = int(m.group(1))
             if 1 <= idx <= len(candidates):

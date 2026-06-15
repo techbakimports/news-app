@@ -148,11 +148,13 @@ async def generate_audio_segments(segment_texts, output_dir, filename_base):
     durations = [c.duration for c in clips]
 
     combined_path = os.path.join(output_dir, f"{filename_base}.mp3")
-    combined_clip = concatenate_audioclips(clips)
-    combined_clip.write_audiofile(combined_path, verbose=False)
-    combined_clip.close()
-    for c in clips:
-        c.close()
+    try:
+        combined_clip = concatenate_audioclips(clips)
+        combined_clip.write_audiofile(combined_path, verbose=False)
+        combined_clip.close()
+    finally:
+        for c in clips:
+            c.close()
     for p in segment_paths:
         os.remove(p)
 

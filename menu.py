@@ -294,10 +294,6 @@ def _configurar_noticias(cfg):
     aguardar()
 
 
-def _perguntar_plataforma():
-    return "youtube"
-
-
 def _configurar_curiosidades(cfg):
     cabecalho("-- AGENDAR CURIOSIDADES --")
     c = cfg["curiosidades"]
@@ -311,7 +307,7 @@ def _configurar_curiosidades(cfg):
         input("  Formato inválido. Use HH:MM,HH:MM,... [Enter]")
         return
 
-    plataforma = _perguntar_plataforma()
+    plataforma = "youtube"
     privado = perguntar_privacidade()
 
     try:
@@ -392,7 +388,7 @@ def menu_agendamento():
         print()
 
         status_n = _status_linha(n, n_real)
-        audio_extra = f" | {a.get('tipo', '?')} {a.get('horas', '?')}h" if n["ativo"] else ""
+        audio_extra = f" | {a.get('tipo', '?')} {a.get('horas', '?')}h" if a["ativo"] else ""
         status_a = _status_linha(a, a_real, audio_extra)
         status_c = _status_linha(c, c_real)
 
@@ -476,10 +472,6 @@ def perguntar_upload():
 
 
 def rodar(cmd, descricao, pipeline=None, upload=True):
-        except Exception as e:
-            print(f"\n  Aviso: erro na verificação pré-pipeline: {e}")
-            print("  Continuando mesmo assim...\n")
-
     print(f"\n  Iniciando: {descricao}")
     print("-" * 45)
     result = subprocess.run(cmd)

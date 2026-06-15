@@ -94,7 +94,11 @@ async def _safe_edit(msg, text: str, **kwargs) -> None:
             _tg_last_edit = loop.time()
         except RetryAfter as e:
             await asyncio.sleep(e.retry_after + 1)
-            _tg_last_edit = loop.time()
+            try:
+                await msg.edit_text(text, parse_mode="HTML", **kwargs)
+                _tg_last_edit = loop.time()
+            except Exception:
+                pass
         except Exception:
             pass
 

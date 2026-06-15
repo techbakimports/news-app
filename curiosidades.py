@@ -379,8 +379,7 @@ async def run_curiosidade(on_progress=None):
         notify(
             f"❌ <b>Curiosidade:</b> YouTube falhou.\n"
             f"<i>{curiosidade['tema']}</i>\n"
-            f"{curiosidade['titulo']}\n"
-            f"<i>{curiosidade['titulo']}</i>"
+            f"{curiosidade['titulo']}"
         )
 
     return video_id

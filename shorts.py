@@ -442,7 +442,7 @@ async def generate_short_from_text(
     print(f"  Vídeo salvo: {output_path} ({duration:.1f}s)")
 
     if not upload:
-        return (output_path, False)
+        return output_path
 
     # Upload — plataformas independentes
     from uploader import upload_video as yt_upload
