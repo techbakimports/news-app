@@ -5,6 +5,7 @@ import sys
 import time
 from datetime import datetime, timedelta, timezone
 from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
@@ -28,8 +29,20 @@ def _is_headless():
 def _get_credentials():
     creds = None
     if os.path.exists(TOKEN_FILE):
-        with open(TOKEN_FILE, "rb") as f:
-            creds = pickle.load(f)
+        try:
+            # Formato JSON (atual)
+            creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
+        except Exception:
+            # Migração: arquivo ainda está no formato pickle antigo
+            try:
+                with open(TOKEN_FILE, "rb") as f:
+                    creds = pickle.load(f)
+                # Converte imediatamente para JSON
+                if creds:
+                    with open(TOKEN_FILE, "w", encoding="utf-8") as f:
+                        f.write(creds.to_json())
+            except Exception:
+                creds = None
         # Re-autentica automaticamente se o token não cobre o escopo atual
         if creds and creds.scopes and not set(SCOPES).issubset(set(creds.scopes)):
             print("  Escopos OAuth desatualizados — reautenticando...")
@@ -67,8 +80,8 @@ def _get_credentials():
                 creds = flow.run_console()
             else:
                 creds = flow.run_local_server(port=0)
-        with open(TOKEN_FILE, "wb") as f:
-            pickle.dump(creds, f)
+        with open(TOKEN_FILE, "w", encoding="utf-8") as f:
+            f.write(creds.to_json())
     return creds
 
 

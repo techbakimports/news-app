@@ -21,6 +21,7 @@ import time
 from datetime import datetime
 from dotenv import load_dotenv
 
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
 load_dotenv()
 
 from fetcher import fetch_latest_news, extract_article_content, select_unique_news

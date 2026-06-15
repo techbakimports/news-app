@@ -22,6 +22,11 @@ PLAYLIST_DEFS = {
         "description": "Curiosidades aleatórias, fatos surpreendentes e descobertas — em formato Short.",
         "keywords": ["curiosidade", "você sabia", "fato curioso"],
     },
+    "celebridades": {
+        "title": "Celebridades e Fofoca 🌟",
+        "description": "Fofocas, entretenimento e novidades dos famosos do Brasil, em formato Short.",
+        "keywords": ["celebridades", "fofoca", "famosos"],
+    },
     "rain": {
         "title": "Chuva para Dormir e Relaxar 🌧️",
         "description": "Horas de sons de chuva para dormir, estudar e relaxar.",

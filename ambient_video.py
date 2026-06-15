@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 from ambient_generator import generate_ambient_audio
 from video import _search_pexels  # fallback de fotos
 
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
 load_dotenv()
 
 if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":

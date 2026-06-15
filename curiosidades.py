@@ -21,6 +21,7 @@ import sys
 from datetime import datetime
 from dotenv import load_dotenv
 
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
 load_dotenv()
 
 from config import AUDIO_OUTPUT_DIR

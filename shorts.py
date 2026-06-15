@@ -111,7 +111,7 @@ def _generate_tags(title: str, category: str, summary: str = "") -> list[str]:
 # Summarizer dedicado para Shorts (prompt mais conciso)
 # ---------------------------------------------------------------------------
 
-_VALID_CATEGORIES = {"Política", "Esporte", "Entretenimento", "Mercado Financeiro", "Tecnologia", "Policial"}
+_VALID_CATEGORIES = {"Política", "Esporte", "Entretenimento", "Mercado Financeiro", "Tecnologia", "Policial", "Celebridades"}
 
 def _summarize_for_short(title: str, category: str, content: str) -> tuple[str, str] | None:
     """
