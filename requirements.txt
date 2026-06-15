@@ -12,7 +12,6 @@ edge-tts
 beautifulsoup4
 requests
 python-dotenv
-aiofiles
 python-telegram-bot>=20.0
 Pillow
 moviepy<2.0
@@ -28,9 +27,3 @@ pytrends          # Google Trends BR — pip install pytrends
 faster-whisper    # transcrição com word timestamps (pip install faster-whisper)
 yt-dlp            # download de vídeos do YouTube (pip install yt-dlp)
 
-# TikTok (precisa do Google Chrome instalado no sistema — ver install_system_deps.sh)
-tiktok-uploader
-
-# NotebookLM (legado — só usado em notebooklm_session.check() que não é chamado hoje,
-# mas import ainda existe; mantido pra não quebrar)
-notebooklm-py

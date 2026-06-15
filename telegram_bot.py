@@ -659,8 +659,9 @@ async def _on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.effective_chat.id != CHAT_ID:
         return
+    from config import __version__
     await update.message.reply_text(
-        "🤖 <b>Youtuber no Automático</b>\nEscolha uma opção:",
+        f"🤖 <b>Youtuber no Automático</b> <code>v{__version__}</code>\nEscolha uma opção:",
         reply_markup=kb_main(),
         parse_mode="HTML",
     )
