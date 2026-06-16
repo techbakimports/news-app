@@ -311,12 +311,14 @@ async def run_curiosidade(on_progress=None):
     print(f"  Narração: {len(curiosidade['narracao'].split())} palavras")
 
     # Adiciona CTA fixo no final — convite pra curtir, compartilhar e se inscrever
+    # (só na fala; o texto exibido na tela usa a narração original, sem o CTA)
+    narracao_sem_cta = curiosidade["narracao"]
     cta = (
         " Curtiu essa curiosidade? Então deixa o seu like, "
         "compartilha com quem precisa saber disso, "
         "e se inscreve no canal pra mais curiosidades como essa todo dia."
     )
-    curiosidade["narracao"] = curiosidade["narracao"].rstrip() + cta
+    curiosidade["narracao"] = narracao_sem_cta.rstrip() + cta
     print(f"  + CTA: narração final {len(curiosidade['narracao'].split())} palavras")
 
     # Salva no histórico
@@ -346,6 +348,7 @@ async def run_curiosidade(on_progress=None):
         playlist_key="curiosidades",
         instagram_enabled=False,
         voice="pt-BR-FranciscaNeural",
+        display_text=narracao_sem_cta,
     )
 
     if not YOUTUBE_UPLOAD:

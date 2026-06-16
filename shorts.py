@@ -340,6 +340,7 @@ async def generate_short_from_text(
     youtube_enabled: bool = True,
     link: str | None = None,
     voice: str | None = None,
+    display_text: str | None = None,
 ) -> str | None:
     """
     Gera um Short vertical 1080×1920 a partir de TEXTO PRONTO (sem chamar Gemini).
@@ -357,6 +358,9 @@ async def generate_short_from_text(
         instagram_enabled: se False, NÃO posta no Instagram mesmo com config ativa
         voice: voz Edge TTS explícita. Se None, resolve automaticamente por categoria
                via CATEGORY_VOICES (config.py). Ex: "pt-BR-ThalitaNeural"
+        display_text: texto exibido sobre a imagem de fundo. Se None, usa o próprio
+                       `narration`. Use para excluir intro/CTA do texto na tela quando
+                       `narration` tiver esses trechos só para a fala.
 
     Retorna o video_id do YouTube ou None se falhar.
     Retorna None ANTES de gerar nada se narration estiver vazia.
@@ -374,10 +378,14 @@ async def generate_short_from_text(
     # Resolve voz: parâmetro explícito > mapeamento por categoria > fallback global
     selected_voice = voice or voice_for_category(category)
 
-    # Limita narração ao máximo de palavras pro Short (~3 min)
+    # Limita narração (falada) ao máximo de palavras pro Short (~3 min)
     words = clean_text(narration).split()
-    summary = " ".join(words[:MAX_WORDS_SHORT])
-    narration_full = summary
+    narration_full = " ".join(words[:MAX_WORDS_SHORT])
+
+    # Texto exibido sobre a imagem de fundo — usa display_text (sem intro/CTA)
+    # quando fornecido, senão cai no próprio narration
+    summary_words = clean_text(display_text if display_text else narration).split()
+    summary = " ".join(summary_words[:MAX_WORDS_SHORT])
 
     print(f"\n  Short: {title[:60]}...")
     print(f"  Voz: {selected_voice}")

@@ -288,6 +288,7 @@ async def run_news_cycle(on_progress=None):
                     playlist_key="noticias",
                     instagram_enabled=False,
                     link=item.get("link"),
+                    display_text=item["narracao"],
                 )
                 print(f"  Vídeo local: {path}")
                 resultados.append((cat, None))
@@ -307,6 +308,7 @@ async def run_news_cycle(on_progress=None):
                 playlist_key="noticias",
                 instagram_enabled=False,
                 link=item.get("link"),
+                display_text=item["narracao"],
             )
             if video_id:
                 mark_as_posted(item["title"], pipeline="noticias")
