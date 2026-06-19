@@ -401,13 +401,9 @@ async def generate_novela_episode(
             .set_audio(audio_clip.subclip(0, min(audio_clip.duration, duration)))
         )
         clips.append(clip)
-
-        # Limpa áudio temporário
-        audio_clip.close()
-        try:
-            os.remove(audio_path)
-        except Exception:
-            pass
+        # Guarda referência ao AudioFileClip e ao path para fechar só após o render
+        clips[-1]._novela_audio_clip = audio_clip
+        clips[-1]._novela_audio_path = audio_path
 
     if not clips:
         print("  Nenhuma cena gerada. Abortando.")
@@ -429,6 +425,11 @@ async def generate_novela_episode(
     )
     final.close()
     for c in clips:
+        getattr(c, "_novela_audio_clip", None) and c._novela_audio_clip.close()
+        try:
+            os.remove(getattr(c, "_novela_audio_path", ""))
+        except Exception:
+            pass
         c.close()
 
     duracao = int(final.duration) if hasattr(final, "duration") else 0
