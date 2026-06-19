@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Youtuber no Automático</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #0f0f0f; color: #e0e0e0; min-height: 100vh; }
+    header { background: #1a1a1a; border-bottom: 1px solid #333; padding: 16px 32px; display: flex; align-items: center; gap: 12px; }
+    header h1 { font-size: 1.2rem; font-weight: 600; color: #fff; }
+    header span { font-size: 1.4rem; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; padding: 32px; }
+    .card { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 12px; padding: 24px; display: flex; flex-direction: column; gap: 16px; }
+    .card-header { display: flex; align-items: center; gap: 10px; }
+    .card-icon { font-size: 1.8rem; }
+    .card-title { font-size: 1rem; font-weight: 600; color: #fff; }
+    .badge { font-size: 0.7rem; padding: 3px 8px; border-radius: 99px; font-weight: 600; text-transform: uppercase; }
+    .badge-idle    { background: #2a2a2a; color: #888; }
+    .badge-running { background: #1a3a1a; color: #4ade80; }
+    .badge-done    { background: #1a2a3a; color: #60a5fa; }
+    .badge-error   { background: #3a1a1a; color: #f87171; }
+    .message { font-size: 0.78rem; color: #666; min-height: 36px; line-height: 1.4; word-break: break-word; }
+    .message.active { color: #aaa; }
+    .btn { padding: 10px 0; border-radius: 8px; border: none; cursor: pointer; font-size: 0.9rem; font-weight: 600; transition: opacity 0.15s; }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-primary { background: #ff0000; color: #fff; }
+    .btn-primary:hover:not(:disabled) { opacity: 0.85; }
+    .last-run { font-size: 0.72rem; color: #555; }
+  </style>
+</head>
+<body>
+  <header>
+    <span>🤖</span>
+    <h1>Youtuber no Automático</h1>
+  </header>
+
+  <div class="grid" id="grid">
+    {% for p in pipelines %}
+    <div class="card" id="card-{{ p.key }}">
+      <div class="card-header">
+        <span class="card-icon">{{ p.icon }}</span>
+        <div style="flex:1">
+          <div class="card-title">{{ p.label }}</div>
+        </div>
+        <span class="badge badge-{{ p.status }}" id="badge-{{ p.key }}">{{ p.status }}</span>
+      </div>
+      <div class="message {% if p.status == 'running' %}active{% endif %}" id="msg-{{ p.key }}">
+        {{ p.message or "Aguardando..." }}
+      </div>
+      {% if p.last_run %}
+      <div class="last-run" id="lr-{{ p.key }}">Último: {{ p.last_run[:16].replace('T',' ') }}</div>
+      {% else %}
+      <div class="last-run" id="lr-{{ p.key }}">Nunca executado</div>
+      {% endif %}
+      <button class="btn btn-primary" id="btn-{{ p.key }}"
+        onclick="runPipeline('{{ p.key }}')"
+        {% if p.status == 'running' %}disabled{% endif %}>
+        ▶ Executar
+      </button>
+    </div>
+    {% endfor %}
+  </div>
+
+  <script>
+    async function runPipeline(key) {
+      const btn = document.getElementById('btn-' + key);
+      btn.disabled = true;
+      await fetch('/run/' + key, { method: 'POST' });
+      pollStatus();
+    }
+
+    async function pollStatus() {
+      const res = await fetch('/status');
+      const data = await res.json();
+      for (const [key, state] of Object.entries(data.pipelines)) {
+        const badge = document.getElementById('badge-' + key);
+        const msg   = document.getElementById('msg-'   + key);
+        const btn   = document.getElementById('btn-'   + key);
+        const lr    = document.getElementById('lr-'    + key);
+        if (!badge) continue;
+        badge.className = 'badge badge-' + state.status;
+        badge.textContent = state.status;
+        msg.textContent = state.message || 'Aguardando...';
+        msg.className = 'message' + (state.status === 'running' ? ' active' : '');
+        btn.disabled = state.status === 'running';
+        if (state.last_run) lr.textContent = 'Último: ' + state.last_run.slice(0,16).replace('T',' ');
+      }
+    }
+
+    // Atualiza status a cada 3s enquanto a página estiver aberta
+    setInterval(pollStatus, 3000);
+  </script>
+</body>
+</html>

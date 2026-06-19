@@ -27,3 +27,9 @@ pytrends          # Google Trends BR — pip install pytrends
 faster-whisper    # transcrição com word timestamps (pip install faster-whisper)
 yt-dlp            # download de vídeos do YouTube (pip install yt-dlp)
 
+# Webserver
+fastapi
+uvicorn[standard]
+jinja2
+python-multipart
+
