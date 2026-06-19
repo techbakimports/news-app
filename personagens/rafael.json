@@ -1,0 +1,10 @@
+{
+  "nome": "Rafael",
+  "tipo": "protagonista",
+  "genero": "masculino",
+  "personalidade": "misterioso, protetor, atormentado pelo passado",
+  "voz": "pt-BR-AntonioNeural",
+  "cor": [80, 120, 200],
+  "prompt_pexels": "serious businessman dramatic portrait",
+  "historia": "Empresário bem-sucedido que esconde um segredo que pode destruir tudo que construiu. Apaixona-se por Isabella sem querer."
+}

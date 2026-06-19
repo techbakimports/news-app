@@ -27,6 +27,11 @@ PLAYLIST_DEFS = {
         "description": "Fofocas, entretenimento e novidades dos famosos do Brasil, em formato Short.",
         "keywords": ["celebridades", "fofoca", "famosos"],
     },
+    "novela": {
+        "title": "Novela IA 🎭",
+        "description": "Episódios diários de novela brasileira criados por inteligência artificial.",
+        "keywords": ["novela ia", "novela brasileira", "drama ia"],
+    },
     "rain": {
         "title": "Chuva para Dormir e Relaxar 🌧️",
         "description": "Horas de sons de chuva para dormir, estudar e relaxar.",

@@ -1,0 +1,10 @@
+{
+  "nome": "Isabella",
+  "tipo": "protagonista",
+  "genero": "feminino",
+  "personalidade": "determinada, apaixonada, ingênua mas corajosa",
+  "voz": "pt-BR-FranciscaNeural",
+  "cor": [220, 100, 150],
+  "prompt_pexels": "elegant woman portrait dramatic lighting",
+  "historia": "Filha de família humilde que descobriu ser herdeira de uma grande fortuna. Luta pelo amor verdadeiro e pela justiça."
+}
