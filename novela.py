@@ -295,6 +295,26 @@ def _render_novela_frame(
     return np.array(merged.convert("RGB"))
 
 
+def _kenburns_clip(frame_arr: np.ndarray, duration: float, fps: int = FPS):
+    """VideoClip com efeito Ken Burns: zoom lento de 100% → 112%."""
+    from moviepy.editor import VideoClip
+
+    h, w = frame_arr.shape[:2]
+    zoom_start, zoom_end = 1.0, 1.12
+
+    def make_frame(t: float) -> np.ndarray:
+        progress = min(t / max(duration, 0.001), 1.0)
+        zoom = zoom_start + (zoom_end - zoom_start) * progress
+        crop_w = int(w / zoom)
+        crop_h = int(h / zoom)
+        x0 = (w - crop_w) // 2
+        y0 = (h - crop_h) // 2
+        cropped = frame_arr[y0:y0 + crop_h, x0:x0 + crop_w]
+        return np.array(Image.fromarray(cropped).resize((w, h), Image.LANCZOS))
+
+    return VideoClip(make_frame, duration=duration).set_fps(fps)
+
+
 # -- Pipeline principal --------------------------------------------------------
 
 async def generate_novela_episode(
@@ -307,7 +327,7 @@ async def generate_novela_episode(
     Gera um episódio completo da novela e faz upload no YouTube.
     Retorna o video_id ou o caminho local (se upload=False).
     """
-    from moviepy.editor import AudioFileClip, ImageClip, concatenate_videoclips
+    from moviepy.editor import AudioFileClip, concatenate_videoclips
 
     os.makedirs(NOVELA_OUTPUT_DIR, exist_ok=True)
     os.makedirs(AUDIO_OUTPUT_DIR, exist_ok=True)
@@ -394,11 +414,8 @@ async def generate_novela_episode(
         # Renderiza frame
         frame = _render_novela_frame(bg_arr, nome, texto, cor, episodio)
 
-        clip = (
-            ImageClip(frame)
-            .set_duration(duration)
-            .set_fps(FPS)
-            .set_audio(audio_clip.subclip(0, min(audio_clip.duration, duration)))
+        clip = _kenburns_clip(frame, duration).set_audio(
+            audio_clip.subclip(0, min(audio_clip.duration, duration))
         )
         clips.append(clip)
         # Guarda referência ao AudioFileClip e ao path para fechar só após o render
@@ -411,8 +428,9 @@ async def generate_novela_episode(
 
     await _progress(f"[3/4] Montando vídeo ({len(clips)} cenas)...")
 
-    # 4. Concatena e exporta
-    final = concatenate_videoclips(clips, method="compose")
+    # 4. Concatena e exporta (fade in/out suave em cada cena)
+    clips_faded = [c.fadein(0.3).fadeout(0.25) for c in clips]
+    final = concatenate_videoclips(clips_faded, method="compose")
     output_path = os.path.join(NOVELA_OUTPUT_DIR, f"Novela_Ep{episodio:02d}_{ts}.mp4")
     final.write_videofile(
         output_path,
