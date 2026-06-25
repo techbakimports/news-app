@@ -427,7 +427,12 @@ async def generate_novela_episode(
     await _progress(f"[3/4] Montando vídeo ({len(clips)} cenas)...")
 
     # 4. Concatena e exporta (fade in/out suave em cada cena)
-    clips_faded = [c.fadein(0.3).fadeout(0.25) for c in clips]
+    # Guard: fades só se a cena durar mais que fadein+fadeout combinados
+    _MIN_FADE_DUR = 0.3 + 0.25 + 0.05
+    clips_faded = [
+        c.fadein(0.3).fadeout(0.25) if c.duration > _MIN_FADE_DUR else c
+        for c in clips
+    ]
     final = concatenate_videoclips(clips_faded, method="compose")
     output_path = os.path.join(NOVELA_OUTPUT_DIR, f"Novela_Ep{episodio:02d}_{ts}.mp4")
     final.write_videofile(
