@@ -20,10 +20,8 @@ import logging
 import os
 import re
 import sys
-import time
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
-from pathlib import Path
 
 import numpy as np
 from dotenv import load_dotenv
@@ -441,6 +439,7 @@ async def generate_novela_episode(
         verbose=False,
         logger=None,
     )
+    duracao = int(final.duration) if final.duration is not None else 0
     final.close()
     for c in clips:
         getattr(c, "_novela_audio_clip", None) and c._novela_audio_clip.close()
@@ -450,18 +449,15 @@ async def generate_novela_episode(
             pass
         c.close()
 
-    duracao = int(final.duration) if hasattr(final, "duration") else 0
     print(f"  Vídeo salvo: {output_path} ({duracao}s)")
 
-    # Salva no histórico
-    _save_historico({
-        "episodio": episodio,
-        "titulo": titulo_ep,
-        "sinopse": sinopse,
-        "ts": datetime.now().isoformat(),
-    })
-
     if not upload:
+        _save_historico({
+            "episodio": episodio,
+            "titulo": titulo_ep,
+            "sinopse": sinopse,
+            "ts": datetime.now().isoformat(),
+        })
         return output_path
 
     await _progress(f"[4/4] Fazendo upload no YouTube...")
@@ -481,6 +477,13 @@ async def generate_novela_episode(
 
         video_id = yt_upload(output_path, yt_title, yt_desc, yt_tags, privacy=privacy)
         print(f"  YouTube: https://youtu.be/{video_id}")
+
+        _save_historico({
+            "episodio": episodio,
+            "titulo": titulo_ep,
+            "sinopse": sinopse,
+            "ts": datetime.now().isoformat(),
+        })
 
         try:
             add_to_playlist(video_id, "novela")
