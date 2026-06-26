@@ -7,7 +7,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
@@ -24,6 +24,43 @@ templates = Jinja2Templates(directory="templates")
 # Status em memória — pipelines rodando
 # ---------------------------------------------------------------------------
 _pipeline_status: dict[str, dict] = {}
+
+# ---------------------------------------------------------------------------
+# Token YouTube
+# ---------------------------------------------------------------------------
+TOKEN_PATH = "credentials/token.json"
+
+
+def _get_token_status() -> dict:
+    """Verifica e tenta renovar as credenciais OAuth do YouTube."""
+    if not os.path.exists(TOKEN_PATH):
+        return {"ok": False, "msg": "token.json não encontrado", "expiry": None}
+
+    try:
+        from google.oauth2.credentials import Credentials
+        from google.auth.transport.requests import Request as GRequest
+
+        creds = Credentials.from_authorized_user_file(TOKEN_PATH)
+
+        if creds.valid:
+            expiry = creds.expiry.strftime("%d/%m %H:%M") if creds.expiry else "?"
+            return {"ok": True, "msg": f"Válido até {expiry}", "expiry": expiry}
+
+        if creds.expired and creds.refresh_token:
+            try:
+                creds.refresh(GRequest())
+                with open(TOKEN_PATH, "w", encoding="utf-8") as f:
+                    f.write(creds.to_json())
+                expiry = creds.expiry.strftime("%d/%m %H:%M") if creds.expiry else "?"
+                return {"ok": True, "msg": f"Renovado — válido até {expiry}", "expiry": expiry}
+            except Exception as e:
+                msg = "Token revogado — reautenticar" if "invalid_grant" in str(e) else "Refresh falhou"
+                return {"ok": False, "msg": msg, "expiry": None}
+
+        return {"ok": False, "msg": "Token expirado — reautenticar necessário", "expiry": None}
+
+    except Exception as e:
+        return {"ok": False, "msg": f"Erro ao ler token: {e}", "expiry": None}
 
 
 def _pipeline_state(name: str) -> dict:
@@ -51,6 +88,11 @@ async def dashboard(request: Request):
 @app.get("/status")
 async def status():
     return {"ok": True, "time": datetime.now().isoformat(), "pipelines": _pipeline_status}
+
+
+@app.get("/token-status")
+async def token_status():
+    return _get_token_status()
 
 
 @app.post("/run/{pipeline}")

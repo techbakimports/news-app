@@ -27,12 +27,17 @@
     .btn-primary { background: #ff0000; color: #fff; }
     .btn-primary:hover:not(:disabled) { opacity: 0.85; }
     .last-run { font-size: 0.72rem; color: #555; }
+    .token-badge { margin-left: auto; display: flex; align-items: center; gap: 8px; font-size: 0.78rem; padding: 5px 12px; border-radius: 99px; font-weight: 600; }
+    .token-ok  { background: #1a3a1a; color: #4ade80; }
+    .token-err { background: #3a1a1a; color: #f87171; }
+    .token-unk { background: #2a2a2a; color: #888; }
   </style>
 </head>
 <body>
   <header>
     <span>🤖</span>
     <h1>Youtuber no Automático</h1>
+    <div class="token-badge token-unk" id="token-badge">▪ YouTube —</div>
   </header>
 
   <div class="grid" id="grid">
@@ -90,6 +95,26 @@
 
     // Atualiza status a cada 3s enquanto a página estiver aberta
     setInterval(pollStatus, 3000);
+
+    async function pollToken() {
+      try {
+        const res = await fetch('/token-status');
+        const data = await res.json();
+        const badge = document.getElementById('token-badge');
+        if (data.ok) {
+          badge.className = 'token-badge token-ok';
+          badge.textContent = '▶ YouTube ' + data.msg;
+        } else {
+          badge.className = 'token-badge token-err';
+          badge.textContent = '✕ YouTube — ' + data.msg;
+        }
+      } catch {
+        document.getElementById('token-badge').textContent = '▪ YouTube — erro';
+      }
+    }
+
+    pollToken();
+    setInterval(pollToken, 60000);
   </script>
 </body>
 </html>
