@@ -519,6 +519,13 @@ async def _main():
     privacy = "private" if args.privado else "public"
     upload = not args.sem_upload
 
+    if upload:
+        from uploader import check_youtube_token
+        ok, msg = check_youtube_token()
+        if not ok:
+            print(f"❌ Token YouTube inválido: {msg}")
+            sys.exit(1)
+
     print(f"\n=== NOVELA IA — {TITULO_SERIE} ===")
     print(f"Upload: {upload} | Privacidade: {privacy}")
     if args.episodio:

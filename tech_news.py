@@ -329,4 +329,11 @@ if __name__ == "__main__":
     if args.apenas_youtube:
         APENAS_YOUTUBE = True
 
+    if YOUTUBE_UPLOAD:
+        from uploader import check_youtube_token
+        ok, msg = check_youtube_token()
+        if not ok:
+            print(f"❌ Token YouTube inválido: {msg}")
+            sys.exit(1)
+
     asyncio.run(run_tech_news())
