@@ -87,8 +87,7 @@ def _get_credentials():
 
 def check_youtube_token() -> tuple[bool, str]:
     """
-    Verifica se o token YouTube está válido sem lançar exceção.
-    Tenta renovar automaticamente se possível.
+    Verifica se o token YouTube está válido sem tentar renovar.
     Retorna (ok, mensagem_curta).
     """
     if not os.path.exists(TOKEN_FILE):
@@ -97,16 +96,9 @@ def check_youtube_token() -> tuple[bool, str]:
         creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
         if creds.valid:
             return True, "Token válido"
-        if creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-            with open(TOKEN_FILE, "w", encoding="utf-8") as f:
-                f.write(creds.to_json())
-            return True, "Token renovado com sucesso"
-        return False, "Token expirado — rode: python -c \"from uploader import _get_credentials; _get_credentials()\""
-    except Exception as e:
-        if "invalid_grant" in str(e):
-            return False, "Token revogado — reautenticação necessária (rode _get_credentials() localmente)"
-        return False, f"Erro ao verificar token: {e}"
+        return False, "Token expirado. Gere um novo token e repita o processo."
+    except Exception:
+        return False, "Token expirado. Gere um novo token e repita o processo."
 
 
 def get_youtube_service():
