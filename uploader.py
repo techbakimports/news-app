@@ -96,9 +96,9 @@ def check_youtube_token() -> tuple[bool, str]:
         creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
         if creds.valid:
             return True, "Token válido"
-        return False, "Token expirado. Gere um novo token e repita o processo."
+        return False, 'Token expirado. Atualize com: python -c "from uploader import _get_credentials; _get_credentials()"'
     except Exception:
-        return False, "Token expirado. Gere um novo token e repita o processo."
+        return False, 'Token expirado. Atualize com: python -c "from uploader import _get_credentials; _get_credentials()"'
 
 
 def get_youtube_service():
