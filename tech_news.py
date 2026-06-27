@@ -16,6 +16,7 @@ import asyncio
 import logging
 from logging.handlers import RotatingFileHandler
 import os
+import sys
 import urllib.parse
 from datetime import datetime
 from dotenv import load_dotenv

@@ -17,6 +17,7 @@ import asyncio
 import logging
 from logging.handlers import RotatingFileHandler
 import os
+import sys
 import time
 from datetime import datetime
 from dotenv import load_dotenv
