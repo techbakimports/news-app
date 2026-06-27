@@ -87,20 +87,18 @@ def _get_credentials():
 
 def check_youtube_token() -> tuple[bool, str]:
     """
-    Verifica se o token YouTube está válido sem tentar renovar.
-    Retorna (ok, mensagem_curta).
+    Verifica o token fazendo uma chamada real na API do YouTube.
+    Renova automaticamente se expirado. Retorna (ok, mensagem).
     """
-    if not os.path.exists(TOKEN_FILE):
-        return False, "token.json não encontrado em credentials/"
     try:
-        creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
-        if creds.valid:
-            return True, "Token válido"
-        if creds.refresh_token:
-            return True, "Token será renovado automaticamente no upload"
-        return False, 'Token revogado. Atualize com: python -c "from uploader import _get_credentials; _get_credentials()"'
-    except Exception:
-        return False, 'Token inválido. Atualize com: python -c "from uploader import _get_credentials; _get_credentials()"'
+        svc = get_youtube_service()
+        svc.channels().list(part="id", mine=True).execute()
+        return True, "Token válido"
+    except Exception as e:
+        err = str(e).lower()
+        if "invalid_grant" in err or "token has been expired" in err or "revoked" in err:
+            return False, 'Token revogado. Atualize com: python -c "from uploader import _get_credentials; _get_credentials()"'
+        return False, f'Erro ao validar token: {e}'
 
 
 def get_youtube_service():
