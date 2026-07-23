@@ -3,118 +3,362 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Youtuber no Automático</title>
+  <title>Dashboard Admin — Youtuber no Automático</title>
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: system-ui, sans-serif; background: #0f0f0f; color: #e0e0e0; min-height: 100vh; }
-    header { background: #1a1a1a; border-bottom: 1px solid #333; padding: 16px 32px; display: flex; align-items: center; gap: 12px; }
-    header h1 { font-size: 1.2rem; font-weight: 600; color: #fff; }
-    header span { font-size: 1.4rem; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; padding: 32px; }
-    .card { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 12px; padding: 24px; display: flex; flex-direction: column; gap: 16px; }
-    .card-header { display: flex; align-items: center; gap: 10px; }
-    .card-icon { font-size: 1.8rem; }
-    .card-title { font-size: 1rem; font-weight: 600; color: #fff; }
-    .badge { font-size: 0.7rem; padding: 3px 8px; border-radius: 99px; font-weight: 600; text-transform: uppercase; }
-    .badge-idle    { background: #2a2a2a; color: #888; }
-    .badge-running { background: #1a3a1a; color: #4ade80; }
-    .badge-done    { background: #1a2a3a; color: #60a5fa; }
-    .badge-error   { background: #3a1a1a; color: #f87171; }
-    .message { font-size: 0.78rem; color: #666; min-height: 36px; line-height: 1.4; word-break: break-word; }
-    .message.active { color: #aaa; }
-    .btn { padding: 10px 0; border-radius: 8px; border: none; cursor: pointer; font-size: 0.9rem; font-weight: 600; transition: opacity 0.15s; }
-    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
-    .btn-primary { background: #ff0000; color: #fff; }
-    .btn-primary:hover:not(:disabled) { opacity: 0.85; }
-    .last-run { font-size: 0.72rem; color: #555; }
-    .token-badge { margin-left: auto; display: flex; align-items: center; gap: 8px; font-size: 0.78rem; padding: 5px 12px; border-radius: 99px; font-weight: 600; }
-    .token-ok  { background: #1a3a1a; color: #4ade80; }
-    .token-err { background: #3a1a1a; color: #f87171; }
-    .token-unk { background: #2a2a2a; color: #888; }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #0f0f0f;
+      color: #e8e8e8;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      min-height: 100vh;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: .9rem 1.5rem;
+      background: #181818;
+      border-bottom: 1px solid #2a2a2a;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    .header-brand { display: flex; align-items: center; gap: .6rem; }
+    .header-brand h1 { font-size: 1rem; font-weight: 700; }
+    .badge-admin {
+      font-size: .68rem;
+      background: #ff3b3b22;
+      color: #ff6b6b;
+      border: 1px solid #ff3b3b44;
+      border-radius: 99px;
+      padding: .1rem .6rem;
+    }
+    .header-right { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+    .header-right span { font-size: .85rem; color: #aaa; }
+    .btn-logout {
+      padding: .35rem .9rem;
+      background: transparent;
+      border: 1px solid #444;
+      border-radius: 6px;
+      color: #ccc;
+      font-size: .82rem;
+      cursor: pointer;
+      text-decoration: none;
+      transition: border-color .2s, color .2s;
+    }
+    .btn-logout:hover { border-color: #ff3b3b; color: #ff6b6b; }
+
+    #token-badge {
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+      font-size: .78rem;
+      padding: .25rem .7rem;
+      border-radius: 99px;
+      background: #1a1a1a;
+      border: 1px solid #333;
+    }
+    #token-badge.ok  { border-color: #1f6b2a; color: #4ade80; }
+    #token-badge.err { border-color: #6b1f1f; color: #f87171; }
+
+    main { max-width: 1100px; margin: 0 auto; padding: 1.5rem 1.2rem 3rem; }
+
+    h2 {
+      font-size: .9rem;
+      font-weight: 600;
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      margin-bottom: 1rem;
+    }
+
+    /* ── Pipeline grid ───────────────────────── */
+    .pipeline-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+      gap: 1rem;
+      margin-bottom: 2.5rem;
+    }
+
+    .card {
+      background: #181818;
+      border: 1px solid #2a2a2a;
+      border-radius: 12px;
+      padding: 1.2rem;
+      display: flex;
+      flex-direction: column;
+      gap: .75rem;
+    }
+    .card-top { display: flex; align-items: center; gap: .7rem; }
+    .card-icon { font-size: 1.6rem; }
+    .card-label { font-size: 1rem; font-weight: 600; }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: .35rem;
+      font-size: .72rem;
+      padding: .18rem .6rem;
+      border-radius: 99px;
+      border: 1px solid;
+    }
+    .status-pill.idle    { color: #888; border-color: #333; }
+    .status-pill.running { color: #60a5fa; border-color: #1d4ed8; animation: pulse 1.5s infinite; }
+    .status-pill.done    { color: #4ade80; border-color: #166534; }
+    .status-pill.error   { color: #f87171; border-color: #7f1d1d; }
+
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
+
+    .card-msg {
+      font-size: .75rem;
+      color: #666;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      min-height: 1.1em;
+    }
+
+    .btn-run {
+      padding: .55rem;
+      background: #ff3b3b;
+      border: none;
+      border-radius: 8px;
+      color: #fff;
+      font-size: .88rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background .2s, opacity .2s;
+    }
+    .btn-run:hover { background: #e02e2e; }
+    .btn-run:disabled { opacity: .4; cursor: default; }
+
+    /* ── Clientes ────────────────────────────── */
+    .section { margin-bottom: 2.5rem; }
+
+    .create-form {
+      background: #181818;
+      border: 1px solid #2a2a2a;
+      border-radius: 12px;
+      padding: 1.2rem;
+      display: flex;
+      gap: .75rem;
+      flex-wrap: wrap;
+      align-items: flex-end;
+      margin-bottom: 1rem;
+    }
+    .create-form .field { display: flex; flex-direction: column; gap: .3rem; flex: 1; min-width: 130px; }
+    .create-form label { font-size: .75rem; color: #888; }
+    .create-form input {
+      padding: .55rem .8rem;
+      background: #111;
+      border: 1px solid #333;
+      border-radius: 8px;
+      color: #fff;
+      font-size: .88rem;
+      outline: none;
+      transition: border-color .2s;
+    }
+    .create-form input:focus { border-color: #ff3b3b; }
+    .btn-add {
+      padding: .55rem 1.2rem;
+      background: #ff3b3b;
+      border: none;
+      border-radius: 8px;
+      color: #fff;
+      font-size: .88rem;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      align-self: flex-end;
+    }
+    .btn-add:hover { background: #e02e2e; }
+
+    .msg-ok  { color: #4ade80; font-size: .82rem; margin-bottom: .75rem; }
+    .msg-err { color: #f87171; font-size: .82rem; margin-bottom: .75rem; }
+
+    table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+    thead th {
+      text-align: left;
+      padding: .5rem .75rem;
+      color: #666;
+      font-weight: 500;
+      border-bottom: 1px solid #222;
+    }
+    tbody tr { border-bottom: 1px solid #1a1a1a; }
+    tbody td { padding: .65rem .75rem; }
+    tbody tr:last-child { border-bottom: none; }
+
+    .pill-active   { color: #4ade80; font-size: .72rem; }
+    .pill-inactive { color: #f87171; font-size: .72rem; }
+
+    .btn-toggle {
+      padding: .3rem .7rem;
+      background: transparent;
+      border: 1px solid #333;
+      border-radius: 6px;
+      color: #bbb;
+      font-size: .75rem;
+      cursor: pointer;
+    }
+    .btn-toggle:hover { border-color: #ff3b3b; color: #ff6b6b; }
+
+    .empty-row td { color: #555; font-size: .82rem; text-align: center; padding: 1.5rem; }
   </style>
 </head>
 <body>
-  <header>
-    <span>🤖</span>
-    <h1>Youtuber no Automático</h1>
-    <div class="token-badge token-unk" id="token-badge">▪ YouTube —</div>
-  </header>
 
-  <div class="grid" id="grid">
+<header>
+  <div class="header-brand">
+    <span>🎬</span>
+    <h1>Youtuber no Automático</h1>
+    <span class="badge-admin">Admin</span>
+  </div>
+  <div class="header-right">
+    <div id="token-badge" class="err">
+      <span>●</span>
+      <span id="token-msg">verificando...</span>
+    </div>
+    <span>{{ session.name }}</span>
+    <a href="/logout" class="btn-logout">Sair</a>
+  </div>
+</header>
+
+<main>
+
+  <h2>Pipelines</h2>
+  <div class="pipeline-grid">
     {% for p in pipelines %}
-    <div class="card" id="card-{{ p.key }}">
-      <div class="card-header">
+    <div class="card">
+      <div class="card-top">
         <span class="card-icon">{{ p.icon }}</span>
-        <div style="flex:1">
-          <div class="card-title">{{ p.label }}</div>
-        </div>
-        <span class="badge badge-{{ p.status }}" id="badge-{{ p.key }}">{{ p.status }}</span>
+        <span class="card-label">{{ p.label }}</span>
       </div>
-      <div class="message {% if p.status == 'running' %}active{% endif %}" id="msg-{{ p.key }}">
-        {{ p.message or "Aguardando..." }}
-      </div>
-      {% if p.last_run %}
-      <div class="last-run" id="lr-{{ p.key }}">Último: {{ p.last_run[:16].replace('T',' ') }}</div>
-      {% else %}
-      <div class="last-run" id="lr-{{ p.key }}">Nunca executado</div>
-      {% endif %}
-      <button class="btn btn-primary" id="btn-{{ p.key }}"
-        onclick="runPipeline('{{ p.key }}')"
+      <span class="status-pill {{ p.status }}" id="pill-{{ p.key }}">
+        {% if p.status == 'running' %}⟳{% elif p.status == 'done' %}✓{% elif p.status == 'error' %}✗{% else %}—{% endif %}
+        {{ p.status }}
+      </span>
+      <div class="card-msg" id="msg-{{ p.key }}">{{ p.message or '' }}</div>
+      <button class="btn-run" id="btn-{{ p.key }}" onclick="runPipeline('{{ p.key }}')"
         {% if p.status == 'running' %}disabled{% endif %}>
-        ▶ Executar
+        {% if p.status == 'running' %}Rodando...{% else %}Executar{% endif %}
       </button>
     </div>
     {% endfor %}
   </div>
 
-  <script>
-    async function runPipeline(key) {
-      const btn = document.getElementById('btn-' + key);
-      btn.disabled = true;
-      await fetch('/run/' + key, { method: 'POST' });
-      pollStatus();
-    }
+  <div class="section">
+    <h2>Clientes</h2>
 
-    async function pollStatus() {
-      const res = await fetch('/status');
-      const data = await res.json();
-      for (const [key, state] of Object.entries(data.pipelines)) {
-        const badge = document.getElementById('badge-' + key);
-        const msg   = document.getElementById('msg-'   + key);
-        const btn   = document.getElementById('btn-'   + key);
-        const lr    = document.getElementById('lr-'    + key);
-        if (!badge) continue;
-        badge.className = 'badge badge-' + state.status;
-        badge.textContent = state.status;
-        msg.textContent = state.message || 'Aguardando...';
-        msg.className = 'message' + (state.status === 'running' ? ' active' : '');
-        btn.disabled = state.status === 'running';
-        if (state.last_run) lr.textContent = 'Último: ' + state.last_run.slice(0,16).replace('T',' ');
+    {% if client_msg %}
+    <p class="{{ 'msg-ok' if client_ok else 'msg-err' }}">{{ client_msg }}</p>
+    {% endif %}
+
+    <form class="create-form" method="post" action="/admin/clientes">
+      <div class="field">
+        <label>Nome</label>
+        <input type="text" name="name" placeholder="João Silva" required>
+      </div>
+      <div class="field">
+        <label>E-mail</label>
+        <input type="email" name="email" placeholder="joao@email.com" required>
+      </div>
+      <div class="field">
+        <label>Senha inicial</label>
+        <input type="password" name="password" placeholder="mínimo 6 chars" required minlength="6">
+      </div>
+      <button type="submit" class="btn-add">+ Adicionar</button>
+    </form>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Nome</th><th>E-mail</th><th>Nicho</th><th>Status</th><th>Criado em</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if clients %}
+          {% for c in clients %}
+          <tr>
+            <td>{{ c.name }}</td>
+            <td>{{ c.email }}</td>
+            <td>{{ c.nicho or '—' }}</td>
+            <td>
+              {% if c.active %}
+              <span class="pill-active">● Ativo</span>
+              {% else %}
+              <span class="pill-inactive">● Inativo</span>
+              {% endif %}
+            </td>
+            <td>{{ c.created_at[:10] }}</td>
+            <td>
+              <form method="post" action="/admin/clientes/{{ c.id }}/toggle" style="display:inline">
+                <button class="btn-toggle">{{ 'Suspender' if c.active else 'Reativar' }}</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        {% else %}
+          <tr class="empty-row"><td colspan="6">Nenhum cliente cadastrado ainda.</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+
+</main>
+
+<script>
+async function checkToken() {
+  try {
+    const r = await fetch('/token-status');
+    const d = await r.json();
+    const badge = document.getElementById('token-badge');
+    badge.classList.remove('ok','err');
+    badge.classList.add(d.ok ? 'ok' : 'err');
+    document.getElementById('token-msg').textContent = d.msg;
+  } catch(e) {}
+}
+checkToken();
+setInterval(checkToken, 60_000);
+
+async function runPipeline(key) {
+  const btn = document.getElementById('btn-' + key);
+  btn.disabled = true;
+  btn.textContent = 'Rodando...';
+  setPill(key, 'running');
+  try { await fetch('/run/' + key, { method: 'POST' }); } catch(e) {}
+  pollStatus(key);
+}
+
+function setPill(key, status) {
+  const pill = document.getElementById('pill-' + key);
+  if (!pill) return;
+  pill.className = 'status-pill ' + status;
+  const icons = { idle:'—', running:'⟳', done:'✓', error:'✗' };
+  pill.textContent = (icons[status] || '—') + ' ' + status;
+}
+
+async function pollStatus(key) {
+  let tries = 0;
+  const iv = setInterval(async () => {
+    tries++;
+    try {
+      const r = await fetch('/status');
+      const d = await r.json();
+      const p = d.pipelines[key];
+      if (!p) return;
+      const msg = document.getElementById('msg-' + key);
+      if (msg) msg.textContent = p.message || '';
+      setPill(key, p.status);
+      if (p.status !== 'running' || tries > 120) {
+        clearInterval(iv);
+        const btn = document.getElementById('btn-' + key);
+        if (btn) { btn.disabled = false; btn.textContent = 'Executar'; }
       }
-    }
-
-    // Atualiza status a cada 3s enquanto a página estiver aberta
-    setInterval(pollStatus, 3000);
-
-    async function pollToken() {
-      try {
-        const res = await fetch('/token-status');
-        const data = await res.json();
-        const badge = document.getElementById('token-badge');
-        if (data.ok) {
-          badge.className = 'token-badge token-ok';
-          badge.textContent = '▶ YouTube ' + data.msg;
-        } else {
-          badge.className = 'token-badge token-err';
-          badge.textContent = '✕ YouTube — ' + data.msg;
-        }
-      } catch {
-        document.getElementById('token-badge').textContent = '▪ YouTube — erro';
-      }
-    }
-
-    pollToken();
-    setInterval(pollToken, 60000);
-  </script>
+    } catch(e) { clearInterval(iv); }
+  }, 3000);
+}
+</script>
 </body>
 </html>

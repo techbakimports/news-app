@@ -277,6 +277,47 @@ def fetch_latest_news(limit=1, categories=None):
         print(f"\n[fetcher] Redirect Google News: {resolve_ok}/{total} resolvidos ({pct}%) | {resolve_fail} fallback")
     return all_news
 
+async def fetch_by_custom_queries(queries: list[str], limit_per_query: int = 5) -> list[dict]:
+    """
+    Busca notícias usando queries livres no Google News RSS.
+    Usado pelo engine/runner.py para pipelines de clientes com nicho customizado.
+    """
+    import asyncio
+
+    all_news = []
+    seen: set[str] = set()
+    base_url = "https://news.google.com/rss/search?q={q}&hl=pt-BR&gl=BR&ceid=BR:pt-419"
+
+    for query in queries:
+        url = base_url.format(q=urllib.parse.quote(query))
+        try:
+            feed = feedparser.parse(url)
+            count = 0
+            for entry in feed.entries:
+                if count >= limit_per_query:
+                    break
+                title = getattr(entry, "title", "").strip()
+                link  = getattr(entry, "link", "").strip()
+                if not title or link in seen:
+                    continue
+                seen.add(link)
+                real_link = _resolve_google_news_url(link) if "news.google.com" in link else link
+                all_news.append({
+                    "category": query,
+                    "source":   getattr(entry, "source", {}).get("title", "Google News"),
+                    "titulo":   title,
+                    "title":    title,
+                    "link":     real_link,
+                    "published": getattr(entry, "published", ""),
+                    "summary":  getattr(entry, "summary", ""),
+                })
+                count += 1
+        except Exception as e:
+            print(f"  [fetcher] fetch_by_custom_queries falhou para '{query}': {e}")
+
+    return all_news
+
+
 def extract_article_content(url):
     """
     Tenta extrair o texto principal de uma notícia via URL.
