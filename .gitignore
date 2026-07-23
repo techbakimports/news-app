@@ -40,6 +40,10 @@ roteiros/
 credentials/
 scheduler.json
 
+# Banco de dados local
+data/users.db
+data/*.db
+
 # IDE
 .vscode/
 .idea/

@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Meu Painel — Youtuber no Automático</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #0f0f0f;
+      color: #e8e8e8;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      min-height: 100vh;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: .9rem 1.5rem;
+      background: #181818;
+      border-bottom: 1px solid #2a2a2a;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    .header-brand { display: flex; align-items: center; gap: .6rem; }
+    .header-brand h1 { font-size: 1rem; font-weight: 700; }
+    .badge-client {
+      font-size: .68rem;
+      background: #1e3a5f22;
+      color: #60a5fa;
+      border: 1px solid #1d4ed844;
+      border-radius: 99px;
+      padding: .1rem .6rem;
+    }
+    .header-right { display: flex; align-items: center; gap: 1rem; }
+    .header-right span { font-size: .85rem; color: #aaa; }
+    .btn-logout {
+      padding: .35rem .9rem;
+      background: transparent;
+      border: 1px solid #444;
+      border-radius: 6px;
+      color: #ccc;
+      font-size: .82rem;
+      cursor: pointer;
+      text-decoration: none;
+    }
+    .btn-logout:hover { border-color: #60a5fa; color: #93c5fd; }
+
+    main { max-width: 720px; margin: 0 auto; padding: 2rem 1.2rem 4rem; }
+
+    h2 {
+      font-size: .9rem;
+      font-weight: 600;
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      margin-bottom: 1rem;
+    }
+
+    /* ── Nicho atual ─────────────────────────── */
+    .nicho-card {
+      background: #181818;
+      border: 1px solid #2a2a2a;
+      border-radius: 12px;
+      padding: 1.3rem;
+      margin-bottom: 2rem;
+    }
+    .nicho-current {
+      display: flex;
+      align-items: center;
+      gap: .75rem;
+      margin-bottom: 1rem;
+    }
+    .nicho-dot {
+      width: 12px; height: 12px; border-radius: 50%;
+      background: var(--nc, #555);
+      flex-shrink: 0;
+    }
+    .nicho-name { font-size: 1.15rem; font-weight: 700; }
+    .nicho-empty { color: #555; font-size: .9rem; }
+
+    .config-preview {
+      background: #111;
+      border: 1px solid #222;
+      border-radius: 8px;
+      padding: .85rem 1rem;
+      font-size: .78rem;
+      color: #888;
+      line-height: 1.6;
+      display: none;
+    }
+    .config-preview.visible { display: block; }
+    .config-preview b { color: #bbb; }
+
+    /* ── Gerador ─────────────────────────────── */
+    .gen-section {
+      background: #181818;
+      border: 1px solid #2a2a2a;
+      border-radius: 12px;
+      padding: 1.3rem;
+      margin-bottom: 2rem;
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 100px;
+      padding: .75rem 1rem;
+      background: #111;
+      border: 1px solid #333;
+      border-radius: 8px;
+      color: #fff;
+      font-size: .92rem;
+      font-family: inherit;
+      resize: vertical;
+      outline: none;
+      transition: border-color .2s;
+      margin-bottom: .75rem;
+    }
+    textarea:focus { border-color: #60a5fa; }
+    textarea::placeholder { color: #555; }
+
+    .btn-generate {
+      padding: .7rem 1.5rem;
+      background: #1d4ed8;
+      border: none;
+      border-radius: 8px;
+      color: #fff;
+      font-size: .92rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background .2s, opacity .2s;
+    }
+    .btn-generate:hover { background: #1e40af; }
+    .btn-generate:disabled { opacity: .4; cursor: default; }
+
+    .gen-status {
+      margin-top: .75rem;
+      font-size: .82rem;
+      color: #60a5fa;
+      min-height: 1.2em;
+    }
+    .gen-status.err { color: #f87171; }
+
+    /* ── Gerar shorts ─────────────────────────── */
+    .run-section {
+      background: #181818;
+      border: 1px solid #2a2a2a;
+      border-radius: 12px;
+      padding: 1.3rem;
+    }
+    .run-section p { font-size: .88rem; color: #888; margin-bottom: 1rem; }
+    .btn-run {
+      padding: .7rem 1.5rem;
+      background: #ff3b3b;
+      border: none;
+      border-radius: 8px;
+      color: #fff;
+      font-size: .92rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background .2s, opacity .2s;
+    }
+    .btn-run:hover { background: #e02e2e; }
+    .btn-run:disabled { opacity: .4; cursor: default; }
+    .run-log {
+      margin-top: 1rem;
+      font-size: .78rem;
+      color: #666;
+      font-family: monospace;
+      white-space: pre-wrap;
+      max-height: 180px;
+      overflow-y: auto;
+      background: #111;
+      border-radius: 6px;
+      padding: .75rem;
+      display: none;
+    }
+    .run-log.visible { display: block; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="header-brand">
+    <span>🎬</span>
+    <h1>Youtuber no Automático</h1>
+    <span class="badge-client">Cliente</span>
+  </div>
+  <div class="header-right">
+    <span>{{ session.name }}</span>
+    <a href="/logout" class="btn-logout">Sair</a>
+  </div>
+</header>
+
+<main>
+
+  <!-- ── Nicho atual ──────────────────────────────── -->
+  <h2>Meu Nicho</h2>
+  <div class="nicho-card">
+    {% if client.nicho %}
+    <div class="nicho-current">
+      <span class="nicho-dot" id="nicho-dot"
+        style="background: {{ config.color_hex if config else '#60a5fa' }}"></span>
+      <span class="nicho-name" id="nicho-name">{{ client.nicho }}</span>
+    </div>
+    {% if config %}
+    <div class="config-preview visible" id="config-preview">
+      <b>Voz:</b> {{ config.voice }}<br>
+      <b>Tom:</b> {{ config.tone }}<br>
+      <b>Shorts/execução:</b> {{ config.max_shorts }}<br>
+      <b>Queries:</b> {{ config.queries | join(', ') }}
+    </div>
+    {% endif %}
+    {% else %}
+    <p class="nicho-empty">Você ainda não configurou um nicho. Use o gerador abaixo.</p>
+    {% endif %}
+  </div>
+
+  <!-- ── Gerador de nicho ─────────────────────────── -->
+  <h2>{{ 'Alterar Nicho' if client.nicho else 'Configurar Nicho' }}</h2>
+  <div class="gen-section">
+    <textarea id="nicho-desc" placeholder="Descreva seu nicho em português. Ex: 'notícias de tecnologia e startups para jovens empreendedores' ou 'futebol brasileiro com foco em times do nordeste'"></textarea>
+    <button class="btn-generate" id="btn-gen" onclick="gerarNicho()">Gerar configuração com IA</button>
+    <div class="gen-status" id="gen-status"></div>
+  </div>
+
+  <!-- ── Executar shorts ──────────────────────────── -->
+  <h2>Gerar Shorts</h2>
+  <div class="run-section">
+    <p id="run-desc">
+      {% if client.nicho %}
+      Gera Shorts sobre <strong>{{ client.nicho }}</strong> e publica no YouTube.
+      {% else %}
+      Configure um nicho antes de gerar Shorts.
+      {% endif %}
+    </p>
+    <button class="btn-run" id="btn-run" onclick="gerarShorts()"
+      {% if not client.nicho %}disabled{% endif %}>
+      Gerar agora
+    </button>
+    <pre class="run-log" id="run-log"></pre>
+  </div>
+
+</main>
+
+<script>
+const clientId = "{{ session.user_id }}";
+
+async function gerarNicho() {
+  const desc = document.getElementById('nicho-desc').value.trim();
+  if (!desc) return;
+  const btn = document.getElementById('btn-gen');
+  const status = document.getElementById('gen-status');
+  btn.disabled = true;
+  status.textContent = 'Gerando com IA...';
+  status.className = 'gen-status';
+
+  try {
+    const r = await fetch('/cliente/gerar-nicho', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ description: desc }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'Erro desconhecido');
+
+    document.getElementById('nicho-name') && (document.getElementById('nicho-name').textContent = d.name);
+    const dot = document.getElementById('nicho-dot');
+    if (dot) dot.style.background = d.color_hex;
+
+    const preview = document.getElementById('config-preview');
+    if (preview) {
+      preview.innerHTML = `<b>Voz:</b> ${d.voice}<br><b>Tom:</b> ${d.tone}<br><b>Shorts/execução:</b> ${d.max_shorts}<br><b>Queries:</b> ${d.queries.join(', ')}`;
+      preview.classList.add('visible');
+    }
+
+    document.getElementById('btn-run').disabled = false;
+    document.getElementById('run-desc').innerHTML = `Gera Shorts sobre <strong>${d.name}</strong> e publica no YouTube.`;
+
+    status.textContent = '✓ Nicho configurado: ' + d.name;
+    status.className = 'gen-status';
+  } catch(e) {
+    status.textContent = '✗ ' + e.message;
+    status.className = 'gen-status err';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function gerarShorts() {
+  const btn = document.getElementById('btn-run');
+  const log = document.getElementById('run-log');
+  btn.disabled = true;
+  log.textContent = 'Iniciando pipeline...\n';
+  log.classList.add('visible');
+
+  try {
+    const r = await fetch('/cliente/run', { method: 'POST' });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'Erro');
+    log.textContent += 'Pipeline iniciado — acompanhe o status abaixo.\n';
+    pollRun(log);
+  } catch(e) {
+    log.textContent += '✗ ' + e.message + '\n';
+    btn.disabled = false;
+  }
+}
+
+async function pollRun(log) {
+  let tries = 0;
+  const btn = document.getElementById('btn-run');
+  const iv = setInterval(async () => {
+    tries++;
+    try {
+      const r = await fetch('/cliente/run-status');
+      const d = await r.json();
+      if (d.message) log.textContent += d.message + '\n';
+      log.scrollTop = log.scrollHeight;
+      if (d.status !== 'running' || tries > 120) {
+        clearInterval(iv);
+        btn.disabled = false;
+        log.textContent += d.status === 'done' ? '✓ Concluído!\n' : '✗ Encerrado.\n';
+      }
+    } catch(e) { clearInterval(iv); btn.disabled = false; }
+  }, 3000);
+}
+</script>
+</body>
+</html>
