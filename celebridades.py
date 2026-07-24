@@ -87,6 +87,13 @@ _CTA = (
     "e se inscreve no canal pra não perder nada dos famosos."
 )
 
+# CTA usado quando a notícia é grave/triste (morte, doença, tragédia) —
+# nada de tom animado ou convite a "fofocar" em cima de uma notícia ruim.
+_CTA_GRAVE = (
+    " Nossos sentimentos aos familiares e amigos neste momento difícil. "
+    "Se inscreva no canal para acompanhar as próximas notícias."
+)
+
 
 # -- Fetch notícias de celebridades via Google News RSS -----------------------
 
@@ -168,34 +175,60 @@ def _fetch_celebridades(limit_per_site: int = 5) -> list[dict]:
 
 # -- Resumo com tom de entretenimento/gossip ----------------------------------
 
-def _summarize_celebridade(title: str, content: str) -> str | None:
+def _summarize_celebridade(title: str, content: str) -> tuple[str, bool] | None:
     """
-    Gera narração estilo gossip/entretenimento (~110-125 palavras, ~60s com CTA).
+    Gera narração de famosos (~110-125 palavras, ~60s com CTA).
     Cadeia: Groq (primário) → Gemini (fallback) → None.
+
+    Detecta se a notícia é GRAVE (morte, doença, tragédia) e ajusta o tom —
+    evita soar como fofoca animada em cima de uma notícia triste.
+
+    Retorna (narracao, is_grave) ou None se nenhum LLM funcionar.
     """
     groq_key   = os.getenv("GROQ_API_KEY", "")
     gemini_key = os.getenv("GEMINI_API_KEY", "")
 
     prompt = (
-        "Você é uma apresentadora animada de programa de entretenimento brasileiro, "
+        "Você é uma apresentadora de programa de entretenimento brasileiro, "
         "narrando uma notícia de famosos em formato Short para YouTube.\n\n"
         f"Título da notícia: {title}\n"
         f"Conteúdo (use como base factual):\n{content[:3000]}\n\n"
-        "REGRAS OBRIGATÓRIAS:\n"
-        "- NÃO leia o título. Comece direto com o fato mais suculento — sem apresentação\n"
+        "REGRAS OBRIGATÓRIAS:\n\n"
+        "1. PRIMEIRA LINHA da resposta: classifique a notícia.\n"
+        "   Formato: TOM: grave  OU  TOM: leve\n"
+        "   - 'grave': morte, doença séria, acidente, luto, internação grave, tragédia,\n"
+        "     violência, problema de saúde mental ou qualquer fato triste/sério.\n"
+        "   - 'leve': namoro, treta, look, fama, polêmica boba, sucesso, fofoca comum.\n\n"
+        "2. DEPOIS, escreva a narração:\n"
+        "- NÃO leia o título. Comece direto com o fato principal — sem apresentação\n"
         "- Texto entre 110 e 125 palavras (o CTA será adicionado depois, totalizando ~60s)\n"
         "- CONTEXTO: quem está ouvindo não sabe nada — diga quem é a pessoa, o que aconteceu e por que é relevante.\n"
         "- COERÊNCIA: escolha UM fio condutor (o fato principal) e siga-o do início ao fim sem desvios.\n"
-        "  Cada frase deve decorrer naturalmente da anterior — como uma fofoca bem contada.\n"
-        "- Tom: animado, leve, divertido — como fofoca entre amigas, mas sem difamar\n"
-        "- Use linguagem coloquial brasileira natural (pode usar 'olha', 'gente', 'imagina')\n"
+        "  Cada frase deve decorrer naturalmente da anterior.\n"
+        "- SE TOM = leve: animado, divertido, como fofoca entre amigas, mas sem difamar.\n"
+        "  Use linguagem coloquial brasileira natural (pode usar 'olha', 'gente', 'imagina').\n"
+        "  Termine com comentário leve que estimule o espectador a opinar nos comentários\n"
+        "  (ex: 'E você, o que acha disso tudo? Comenta aqui embaixo!')\n"
+        "- SE TOM = grave: respeitoso, sóbrio, empático — como um jornalista dando uma notícia\n"
+        "  triste. SEM animação, SEM linguagem de fofoca, SEM exclamações. Feche com uma frase\n"
+        "  de respeito/solidariedade, NÃO com convite a opinar ou comentar de forma leve.\n"
         "- NÃO use markdown, asteriscos, hashtags, símbolos ou listas\n"
         "- NÃO invente fatos — use apenas o que está no conteúdo fornecido\n"
-        "- Termine com comentário leve que estimule o espectador a opinar nos comentários\n"
-        "  (ex: 'E você, o que acha disso tudo? Comenta aqui embaixo!')\n"
         "- NÃO inclua o CTA de inscrição — ele será adicionado automaticamente\n\n"
-        "Responda APENAS com o texto da narração, sem título nem formatação."
+        "Responda apenas com a linha TOM seguida da narração, sem título nem formatação extra."
     )
+
+    def _parse(text: str) -> tuple[str, bool]:
+        lines = text.strip().splitlines()
+        is_grave = False
+        start = 0
+        if lines and lines[0].upper().startswith("TOM:"):
+            is_grave = "grave" in lines[0].lower()
+            start = 1
+            while start < len(lines) and not lines[start].strip():
+                start += 1
+        narration = "\n".join(lines[start:]).strip()
+        return narration, is_grave
 
     # 1) Groq primário
     if groq_key and groq_key not in ("", "cole_sua_chave_aqui"):
@@ -209,8 +242,9 @@ def _summarize_celebridade(title: str, content: str) -> str | None:
             )
             text = resp.choices[0].message.content.strip()
             if text:
-                print(f"  [Groq] narração gerada ({len(text.split())} palavras)")
-                return text
+                narration, is_grave = _parse(text)
+                print(f"  [Groq] narração gerada ({len(narration.split())} palavras, tom={'grave' if is_grave else 'leve'})")
+                return narration, is_grave
         except Exception as e:
             print(f"  Groq falhou: {e}. Tentando Gemini...")
 
@@ -224,8 +258,9 @@ def _summarize_celebridade(title: str, content: str) -> str | None:
             )
             text = response.text.strip()
             if text:
-                print(f"  [Gemini] narração gerada ({len(text.split())} palavras)")
-                return text
+                narration, is_grave = _parse(text)
+                print(f"  [Gemini] narração gerada ({len(narration.split())} palavras, tom={'grave' if is_grave else 'leve'})")
+                return narration, is_grave
         except Exception as e:
             print(f"  Gemini também falhou: {e}")
 
@@ -303,9 +338,10 @@ async def run_celebridades(on_progress=None, max_shorts: int | None = None) -> l
         content = extract_article_content(item["link"])
         item["_content"] = content if content else item.get("summary", "")
 
-        narracao = _summarize_celebridade(item["title"], item["_content"])
-        if narracao:
-            item["narracao"] = narracao + _CTA
+        resultado = _summarize_celebridade(item["title"], item["_content"])
+        if resultado:
+            narracao, is_grave = resultado
+            item["narracao"] = narracao + (_CTA_GRAVE if is_grave else _CTA)
             items_com_narracao.append(item)
         else:
             print(f"    ⚠️  Sem narração — pulando")

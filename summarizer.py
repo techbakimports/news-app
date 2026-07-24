@@ -401,13 +401,21 @@ def summarize_news_for_short(category: str, title: str, content: str) -> tuple[s
     # Tom do narrador varia por categoria
     if category == "Celebridades":
         persona = (
-            "Você é uma apresentadora animada de programa de entretenimento brasileiro, "
-            "narrando uma fofoca dos famosos em formato Short para YouTube."
+            "Você é uma apresentadora de programa de entretenimento brasileiro, "
+            "narrando uma notícia de celebridades em formato Short para YouTube."
         )
         tom_extra = (
-            "- Tom: leve, divertido, animado — como fofoca entre amigas, mas sem difamar\n"
-            "- Use linguagem coloquial brasileira (pode usar 'gente', 'olha', 'imagina')\n"
-            "- Termine com comentário leve que convide a opinar nos comentários\n"
+            "- ANTES de escolher o tom, avalie a natureza do fato: é uma notícia GRAVE/TRISTE\n"
+            "  (morte, doença séria, acidente, luto, internação grave, tragédia, violência,\n"
+            "  problema de saúde mental) ou é uma fofoca LEVE (namoro, treta, look, fama,\n"
+            "  polêmica boba, sucesso)?\n"
+            "- SE FOR GRAVE/TRISTE: tom respeitoso, sóbrio e empático — como um jornalista\n"
+            "  dando uma notícia triste, SEM animação, SEM linguagem de fofoca, SEM convite\n"
+            "  a comentar de forma leve. Nada de 'gente', 'olha só', exclamações animadas.\n"
+            "  Feche com uma frase de respeito/solidariedade, não com CTA de opinião.\n"
+            "- SE FOR LEVE: tom leve, divertido, animado — como fofoca entre amigas, mas sem\n"
+            "  difamar. Pode usar linguagem coloquial ('gente', 'olha', 'imagina') e terminar\n"
+            "  com comentário leve convidando a opinar nos comentários\n"
             "  (ex: 'E você, o que acha? Comenta aqui embaixo!')\n"
         )
     else:
