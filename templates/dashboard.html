@@ -427,7 +427,12 @@ async function saveSchedule(key) {
 
 function addTime(key) {
   const input = document.getElementById('sched-input-' + key);
-  if (!input.value) return;
+  const statusEl = document.getElementById('sched-status-' + key);
+  if (!input.value) {
+    if (statusEl) statusEl.textContent = '✗ Selecione hora e minuto antes de adicionar.';
+    input.focus();
+    return;
+  }
   const times = scheduleState[key] || (scheduleState[key] = []);
   if (!times.includes(input.value)) {
     times.push(input.value);
