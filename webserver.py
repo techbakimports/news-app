@@ -111,8 +111,15 @@ async def login_page(request: Request):
 
 @app.post("/login", response_class=HTMLResponse)
 async def login_post(request: Request, email: str = Form(...), password: str = Form(...)):
+    if auth.is_locked_out(email):
+        return templates.TemplateResponse(
+            request=request, name="login.html",
+            context={"error": f"Muitas tentativas incorretas. Tente novamente em até {auth.LOCKOUT_MINUTES} minutos."},
+        )
+
     # admin
     if auth.verify_admin(email, password):
+        auth.clear_attempts(email)
         token = auth.create_session("admin", os.getenv("ADMIN_NAME", "Admin"), "admin")
         resp = RedirectResponse("/admin", status_code=303)
         resp.set_cookie("session", token, httponly=True, samesite="lax", max_age=8 * 3600)
@@ -121,11 +128,13 @@ async def login_post(request: Request, email: str = Form(...), password: str = F
     # cliente
     c = db.verify_client(email, password)
     if c:
+        auth.clear_attempts(email)
         token = auth.create_session(c["id"], c["name"], "client")
         resp = RedirectResponse("/cliente", status_code=303)
         resp.set_cookie("session", token, httponly=True, samesite="lax", max_age=8 * 3600)
         return resp
 
+    auth.record_failed_attempt(email)
     return templates.TemplateResponse(
         request=request, name="login.html",
         context={"error": "E-mail ou senha incorretos."},
@@ -288,9 +297,11 @@ async def cliente_panel(request: Request):
         except Exception:
             pass
 
+    runs = db.list_runs(s["user_id"], limit=10)
+
     return templates.TemplateResponse(
         request=request, name="painel_cliente.html",
-        context={"session": s, "client": c, "config": config},
+        context={"session": s, "client": c, "config": config, "runs": runs},
     )
 
 
@@ -343,6 +354,8 @@ async def cliente_run_status(request: Request):
 
 
 async def _execute_client_pipeline(uid: str, nicho_config_json: str):
+    run_id = db.create_run(uid)
+    video_ids: list[str] = []
     env = {**os.environ, "PYTHONUNBUFFERED": "1", "NICHO_CONFIG": nicho_config_json}
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -357,10 +370,13 @@ async def _execute_client_pipeline(uid: str, nicho_config_json: str):
             if line:
                 last_line = line
                 _client_status[uid]["message"] = line
+                if line.startswith("VIDEO_ID:"):
+                    video_ids.append(line.split("VIDEO_ID:", 1)[1].strip())
         await proc.wait()
-        _client_status[uid].update({
-            "status": "done" if proc.returncode == 0 else "error",
-            "message": last_line or ("Concluído" if proc.returncode == 0 else "Erro"),
-        })
+        status = "done" if proc.returncode == 0 else "error"
+        message = last_line or ("Concluído" if proc.returncode == 0 else "Erro")
+        _client_status[uid].update({"status": status, "message": message})
+        db.update_run(run_id, status, video_ids=video_ids, message=message)
     except Exception as e:
         _client_status[uid].update({"status": "error", "message": str(e)})
+        db.update_run(run_id, "error", video_ids=video_ids, message=str(e))

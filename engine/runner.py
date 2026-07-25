@@ -39,7 +39,7 @@ async def run(config: dict) -> None:
         if not item.get("resumo"):
             continue
         print(f"[runner] Gerando Short: {item.get('titulo', '?')}")
-        await generate_short_from_text(
+        result = await generate_short_from_text(
             title=item.get("titulo", name),
             narration=item["resumo"],
             category=name,
@@ -54,6 +54,10 @@ async def run(config: dict) -> None:
             voice=voice,
             display_text=None,
         )
+        # generate_short_from_text retorna o video_id do YouTube quando o upload
+        # é bem-sucedido, ou o caminho local do arquivo quando falha/desativado.
+        if result and os.sep not in result and not result.lower().endswith(".mp4"):
+            print(f"VIDEO_ID:{result}")
 
     print("[runner] Concluído.")
 

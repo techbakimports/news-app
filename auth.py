@@ -1,17 +1,17 @@
 """
-Gerenciamento de sessões — tokens em memória com expiração.
+Gerenciamento de sessões (persistidas em SQLite) e proteção contra força bruta no login.
 """
-import hashlib
 import os
 import secrets
 from datetime import datetime, timedelta
 
+import db
+
 SESSION_HOURS = 8
-_sessions: dict[str, dict] = {}
 
-
-def _hash(text: str) -> str:
-    return hashlib.sha256(text.encode()).hexdigest()
+MAX_LOGIN_ATTEMPTS = 5
+LOCKOUT_MINUTES = 15
+_failed_attempts: dict[str, list[datetime]] = {}
 
 
 def verify_admin(email: str, password: str) -> bool:
@@ -22,27 +22,42 @@ def verify_admin(email: str, password: str) -> bool:
 
 def create_session(user_id: str, name: str, role: str) -> str:
     token = secrets.token_urlsafe(32)
-    _sessions[token] = {
-        "user_id": user_id,
-        "name":    name,
-        "role":    role,
-        "expires": (datetime.now() + timedelta(hours=SESSION_HOURS)).isoformat(),
-    }
+    expires = (datetime.now() + timedelta(hours=SESSION_HOURS)).isoformat()
+    db.create_session_row(token, user_id, name, role, expires)
     return token
 
 
 def get_session(token: str | None) -> dict | None:
     if not token:
         return None
-    s = _sessions.get(token)
+    s = db.get_session_row(token)
     if not s:
         return None
     if datetime.fromisoformat(s["expires"]) < datetime.now():
-        _sessions.pop(token, None)
+        db.delete_session_row(token)
         return None
     return s
 
 
 def delete_session(token: str | None) -> None:
     if token:
-        _sessions.pop(token, None)
+        db.delete_session_row(token)
+
+
+# ── Rate limiting de login ────────────────────────────────────────────────────
+
+def is_locked_out(key: str) -> bool:
+    key = key.strip().lower()
+    cutoff = datetime.now() - timedelta(minutes=LOCKOUT_MINUTES)
+    attempts = [t for t in _failed_attempts.get(key, []) if t > cutoff]
+    _failed_attempts[key] = attempts
+    return len(attempts) >= MAX_LOGIN_ATTEMPTS
+
+
+def record_failed_attempt(key: str) -> None:
+    key = key.strip().lower()
+    _failed_attempts.setdefault(key, []).append(datetime.now())
+
+
+def clear_attempts(key: str) -> None:
+    _failed_attempts.pop(key.strip().lower(), None)

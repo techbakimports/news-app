@@ -179,6 +179,32 @@
       display: none;
     }
     .run-log.visible { display: block; }
+
+    /* ── Histórico ───────────────────────────── */
+    .history-section {
+      background: #181818;
+      border: 1px solid #2a2a2a;
+      border-radius: 12px;
+      padding: 1.3rem;
+      margin-top: 2rem;
+    }
+    .history-table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+    .history-table thead th {
+      text-align: left;
+      padding: .5rem .3rem;
+      color: #666;
+      font-weight: 500;
+      border-bottom: 1px solid #222;
+    }
+    .history-table tbody td { padding: .55rem .3rem; }
+    .history-table tbody tr { border-bottom: 1px solid #1a1a1a; }
+    .history-table tbody tr:last-child { border-bottom: none; }
+    .hist-done    { color: #4ade80; }
+    .hist-running { color: #60a5fa; }
+    .hist-error   { color: #f87171; }
+    .hist-video   { color: #60a5fa; text-decoration: none; margin-right: .6rem; }
+    .hist-video:hover { text-decoration: underline; }
+    .hist-empty { color: #555; text-align: center; padding: 1.2rem; }
   </style>
 </head>
 <body>
@@ -242,6 +268,41 @@
       Gerar agora
     </button>
     <pre class="run-log" id="run-log"></pre>
+  </div>
+
+  <!-- ── Histórico de execuções ────────────────────── -->
+  <h2>Histórico de Execuções</h2>
+  <div class="history-section">
+    <table class="history-table">
+      <thead>
+        <tr><th>Data</th><th>Status</th><th>Vídeos</th></tr>
+      </thead>
+      <tbody>
+        {% if runs %}
+          {% for r in runs %}
+          <tr>
+            <td>{{ r.started_at[:16].replace('T', ' ') }}</td>
+            <td>
+              {% if r.status == 'done' %}<span class="hist-done">✓ concluído</span>
+              {% elif r.status == 'running' %}<span class="hist-running">⟳ rodando</span>
+              {% else %}<span class="hist-error">✗ erro</span>{% endif %}
+            </td>
+            <td>
+              {% if r.video_ids %}
+                {% for vid in r.video_ids %}
+                <a href="https://youtu.be/{{ vid }}" target="_blank" class="hist-video">▶ {{ vid }}</a>
+                {% endfor %}
+              {% else %}
+                —
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        {% else %}
+          <tr><td colspan="3" class="hist-empty">Nenhuma execução ainda.</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
   </div>
 
 </main>
