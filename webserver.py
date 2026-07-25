@@ -7,8 +7,10 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
+import subprocess
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Form, Request
@@ -49,6 +51,16 @@ SCRIPTS = {
     "novela":       "novela.py",
 }
 
+# Tag usada no comentário do crontab (# YOUTUBER:<tag>) → chave do pipeline no dashboard.
+# tech_news.py é agendado com a tag "tecnologia", não "tech".
+CRON_TAG_TO_KEY = {
+    "noticias":     "noticias",
+    "celebridades": "celebridades",
+    "tecnologia":   "tech",
+    "curiosidades": "curiosidades",
+    "novela":       "novela",
+}
+
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -80,6 +92,55 @@ def _get_token_status() -> dict:
 
 def _pipeline_state(key: str) -> dict:
     return _pipeline_status.get(key, {"status": "idle", "last_run": None, "message": ""})
+
+
+_CRON_LINE_RE = re.compile(r"^(\d+)\s+(\d+)\s+\*\s+\*\s+\*\s+.*#\s*YOUTUBER:(\w+)")
+
+
+def _get_cron_schedules() -> dict[str, list[str]]:
+    """Lê o crontab do sistema e retorna {pipeline_key: ["HH:MM", ...]}.
+
+    Só funciona em Linux (VPS) — em Windows local retorna vazio silenciosamente.
+    """
+    schedules: dict[str, list[str]] = {}
+    try:
+        result = subprocess.run(
+            ["crontab", "-l"], capture_output=True, text=True, timeout=5
+        )
+    except (FileNotFoundError, subprocess.SubprocessError):
+        return schedules
+    if result.returncode != 0:
+        return schedules
+
+    for line in result.stdout.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        match = _CRON_LINE_RE.match(line)
+        if not match:
+            continue
+        minute, hour, tag = match.groups()
+        key = CRON_TAG_TO_KEY.get(tag, tag)
+        schedules.setdefault(key, []).append(f"{int(hour):02d}:{int(minute):02d}")
+
+    for key in schedules:
+        schedules[key].sort()
+    return schedules
+
+
+def _next_run_time(times: list[str]) -> str | None:
+    """Dado horários 'HH:MM', retorna o próximo a ocorrer formatado (dd/mm HH:MM)."""
+    if not times:
+        return None
+    now = datetime.now()
+    candidates = []
+    for t in times:
+        hh, mm = map(int, t.split(":"))
+        candidate = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+        if candidate <= now:
+            candidate += timedelta(days=1)
+        candidates.append(candidate)
+    return min(candidates).strftime("%d/%m %H:%M")
 
 
 def _cookie_token(request: Request) -> str | None:
@@ -171,10 +232,16 @@ async def admin_dashboard(request: Request, created: str = None, error: str = No
     if not s:
         return RedirectResponse("/login", status_code=303)
 
+    schedules = _get_cron_schedules()
     pipelines = []
     for p in PIPELINES:
         state = _pipeline_state(p["key"])
-        pipelines.append({**p, **state})
+        times = schedules.get(p["key"], [])
+        pipelines.append({
+            **p, **state,
+            "schedule_times": times,
+            "next_run": _next_run_time(times),
+        })
 
     clients = db.list_clients()
 

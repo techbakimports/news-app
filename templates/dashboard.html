@@ -120,6 +120,12 @@
       min-height: 1.1em;
     }
 
+    .card-schedule {
+      font-size: .72rem;
+      color: #60a5fa;
+    }
+    .card-schedule.none { color: #555; }
+
     .btn-run {
       padding: .55rem;
       background: #ff3b3b;
@@ -240,6 +246,11 @@
         {{ p.status }}
       </span>
       <div class="card-msg" id="msg-{{ p.key }}">{{ p.message or '' }}</div>
+      {% if p.schedule_times %}
+      <div class="card-schedule">⏰ {{ p.schedule_times | join(', ') }} — próximo: {{ p.next_run }}</div>
+      {% else %}
+      <div class="card-schedule none">Sem agendamento</div>
+      {% endif %}
       <button class="btn-run" id="btn-{{ p.key }}" onclick="runPipeline('{{ p.key }}')"
         {% if p.status == 'running' %}disabled{% endif %}>
         {% if p.status == 'running' %}Rodando...{% else %}Executar{% endif %}
