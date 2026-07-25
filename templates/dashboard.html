@@ -126,6 +126,64 @@
     }
     .card-schedule.none { color: #555; }
 
+    .sched-editor {
+      display: flex;
+      flex-direction: column;
+      gap: .4rem;
+    }
+    .sched-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: .35rem;
+      min-height: 1.4rem;
+    }
+    .sched-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: .3rem;
+      font-size: .72rem;
+      padding: .15rem .5rem;
+      background: #111;
+      border: 1px solid #333;
+      border-radius: 99px;
+      color: #ccc;
+    }
+    .sched-chip button {
+      background: none;
+      border: none;
+      color: #888;
+      cursor: pointer;
+      font-size: .85rem;
+      line-height: 1;
+      padding: 0;
+    }
+    .sched-chip button:hover { color: #ff6b6b; }
+    .sched-empty { font-size: .72rem; color: #555; }
+
+    .sched-add { display: flex; gap: .4rem; }
+    .sched-add input[type=time] {
+      flex: 1;
+      background: #111;
+      border: 1px solid #333;
+      border-radius: 6px;
+      color: #fff;
+      font-size: .78rem;
+      padding: .3rem .4rem;
+      color-scheme: dark;
+    }
+    .btn-sched-add {
+      padding: .3rem .6rem;
+      background: transparent;
+      border: 1px solid #333;
+      border-radius: 6px;
+      color: #93c5fd;
+      font-size: .72rem;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .btn-sched-add:hover { border-color: #60a5fa; }
+    .sched-status { font-size: .7rem; color: #f87171; min-height: 1em; }
+
     .btn-run {
       padding: .55rem;
       background: #ff3b3b;
@@ -247,10 +305,20 @@
       </span>
       <div class="card-msg" id="msg-{{ p.key }}">{{ p.message or '' }}</div>
       {% if p.schedule_times %}
-      <div class="card-schedule">⏰ {{ p.schedule_times | join(', ') }} — próximo: {{ p.next_run }}</div>
+      <div class="card-schedule">⏰ próximo: {{ p.next_run }}</div>
       {% else %}
       <div class="card-schedule none">Sem agendamento</div>
       {% endif %}
+
+      <div class="sched-editor">
+        <div class="sched-chips" id="sched-chips-{{ p.key }}"></div>
+        <div class="sched-add">
+          <input type="time" id="sched-input-{{ p.key }}">
+          <button class="btn-sched-add" onclick="addTime('{{ p.key }}')">+ Horário</button>
+        </div>
+        <div class="sched-status" id="sched-status-{{ p.key }}"></div>
+      </div>
+
       <button class="btn-run" id="btn-{{ p.key }}" onclick="runPipeline('{{ p.key }}')"
         {% if p.status == 'running' %}disabled{% endif %}>
         {% if p.status == 'running' %}Rodando...{% else %}Executar{% endif %}
@@ -320,6 +388,60 @@
 </main>
 
 <script>
+// ── Agendamento ────────────────────────────────────────────
+const scheduleState = {};
+{% for p in pipelines %}
+scheduleState['{{ p.key }}'] = {{ p.schedule_times | tojson }};
+{% endfor %}
+
+function renderChips(key) {
+  const container = document.getElementById('sched-chips-' + key);
+  if (!container) return;
+  const times = scheduleState[key] || [];
+  if (!times.length) {
+    container.innerHTML = '<span class="sched-empty">Sem agendamento</span>';
+    return;
+  }
+  container.innerHTML = times.map(t =>
+    `<span class="sched-chip">${t} <button onclick="removeTime('${key}','${t}')">×</button></span>`
+  ).join('');
+}
+Object.keys(scheduleState).forEach(renderChips);
+
+async function saveSchedule(key) {
+  const statusEl = document.getElementById('sched-status-' + key);
+  try {
+    const r = await fetch('/admin/schedule/' + key, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ times: scheduleState[key] }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'Erro ao salvar');
+    if (statusEl) statusEl.textContent = '';
+  } catch(e) {
+    if (statusEl) statusEl.textContent = '✗ ' + e.message;
+  }
+  renderChips(key);
+}
+
+function addTime(key) {
+  const input = document.getElementById('sched-input-' + key);
+  if (!input.value) return;
+  const times = scheduleState[key] || (scheduleState[key] = []);
+  if (!times.includes(input.value)) {
+    times.push(input.value);
+    times.sort();
+  }
+  input.value = '';
+  saveSchedule(key);
+}
+
+function removeTime(key, t) {
+  scheduleState[key] = (scheduleState[key] || []).filter(x => x !== t);
+  saveSchedule(key);
+}
+
 async function checkToken() {
   try {
     const r = await fetch('/token-status');

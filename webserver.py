@@ -27,6 +27,7 @@ db.init_db()
 
 app = FastAPI(title="Youtuber no Automático", version="2.0.0")
 templates = Jinja2Templates(directory="templates")
+templates.env.filters["tojson"] = json.dumps
 
 # pipeline status global
 _pipeline_status: dict[str, dict] = {}
@@ -51,6 +52,12 @@ SCRIPTS = {
     "novela":       "novela.py",
 }
 
+# Argumentos extras que o crontab já usa pra cada script (preservados ao
+# regenerar a linha de agendamento pela interface).
+SCRIPT_ARGS = {
+    "tech": ["--apenas-youtube"],
+}
+
 # Tag usada no comentário do crontab (# YOUTUBER:<tag>) → chave do pipeline no dashboard.
 # tech_news.py é agendado com a tag "tecnologia", não "tech".
 CRON_TAG_TO_KEY = {
@@ -60,6 +67,17 @@ CRON_TAG_TO_KEY = {
     "curiosidades": "curiosidades",
     "novela":       "novela",
 }
+KEY_TO_CRON_TAG = {v: k for k, v in CRON_TAG_TO_KEY.items()}
+
+LOG_FILES = {
+    "noticias":     "logs/noticias.log",
+    "celebridades": "logs/celebridades.log",
+    "tech":         "logs/tecnologia.log",
+    "curiosidades": "logs/curiosidades.log",
+    "novela":       "logs/novela.log",
+}
+
+_ERROR_MARKERS = ("Traceback (most recent call last)", "❌", "ERRO FATAL", "Pipeline abortado")
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -141,6 +159,83 @@ def _next_run_time(times: list[str]) -> str | None:
             candidate += timedelta(days=1)
         candidates.append(candidate)
     return min(candidates).strftime("%d/%m %H:%M")
+
+
+def _get_log_derived_state(key: str) -> dict | None:
+    """Deriva status/last_run/message a partir do arquivo de log do pipeline.
+
+    Cobre execuções via cron, que nunca passam pelo _pipeline_status em memória.
+    """
+    path = LOG_FILES.get(key)
+    if not path or not os.path.exists(path):
+        return None
+    try:
+        mtime = datetime.fromtimestamp(os.path.getmtime(path))
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            f.seek(max(0, os.path.getsize(path) - 8000))
+            tail_lines = f.read().splitlines()
+        is_error = any(marker in line for line in tail_lines for marker in _ERROR_MARKERS)
+        last_line = next((l.strip() for l in reversed(tail_lines) if l.strip()), "")
+        return {
+            "status": "error" if is_error else "done",
+            "last_run": mtime.isoformat(),
+            "message": f"[cron] {last_line}"[:200],
+        }
+    except OSError:
+        return None
+
+
+def _merged_pipeline_state(key: str) -> dict:
+    """Combina status em memória (execução manual via web) com o log (cron).
+
+    Se uma execução manual está rodando agora, ela manda. Caso contrário,
+    mostra o que tiver ocorrido mais recentemente entre os dois.
+    """
+    mem_state = _pipeline_status.get(key)
+    if mem_state and mem_state.get("status") == "running":
+        return mem_state
+
+    log_state = _get_log_derived_state(key)
+    if mem_state and log_state:
+        mem_dt = datetime.fromisoformat(mem_state["last_run"]) if mem_state.get("last_run") else datetime.min
+        log_dt = datetime.fromisoformat(log_state["last_run"])
+        return mem_state if mem_dt >= log_dt else log_state
+
+    return mem_state or log_state or {"status": "idle", "last_run": None, "message": ""}
+
+
+def _set_pipeline_schedule(pipeline_key: str, times: list[str]) -> None:
+    """Regenera as linhas de crontab de um pipeline com os horários informados.
+
+    Lista vazia remove o agendamento (pipeline passa a ser só manual).
+    """
+    tag = KEY_TO_CRON_TAG.get(pipeline_key, pipeline_key)
+    script = SCRIPTS[pipeline_key]
+    extra_args = "".join(f" {a}" for a in SCRIPT_ARGS.get(pipeline_key, []))
+    project_dir = os.path.dirname(os.path.abspath(__file__))
+    log_file = os.path.join(project_dir, LOG_FILES.get(pipeline_key, f"logs/{tag}.log"))
+
+    try:
+        result = subprocess.run(["crontab", "-l"], capture_output=True, text=True, timeout=5)
+        existing = result.stdout.splitlines() if result.returncode == 0 else []
+    except (FileNotFoundError, subprocess.SubprocessError) as e:
+        raise RuntimeError("crontab não disponível neste sistema") from e
+
+    lines = [l for l in existing if f"# YOUTUBER:{tag}" not in l]
+
+    for t in times:
+        hh, mm = map(int, t.split(":"))
+        lines.append(
+            f'{mm:02d} {hh:02d} * * * cd {project_dir} && '
+            f'"{sys.executable}" "{os.path.join(project_dir, script)}"{extra_args} '
+            f'>> "{log_file}" 2>&1  # YOUTUBER:{tag}'
+        )
+
+    new_crontab = "\n".join(l for l in lines if l.strip()) + "\n"
+    try:
+        subprocess.run(["crontab", "-"], input=new_crontab, text=True, timeout=5, check=True)
+    except (FileNotFoundError, subprocess.SubprocessError) as e:
+        raise RuntimeError("crontab não disponível neste sistema") from e
 
 
 def _cookie_token(request: Request) -> str | None:
@@ -235,7 +330,7 @@ async def admin_dashboard(request: Request, created: str = None, error: str = No
     schedules = _get_cron_schedules()
     pipelines = []
     for p in PIPELINES:
-        state = _pipeline_state(p["key"])
+        state = _merged_pipeline_state(p["key"])
         times = schedules.get(p["key"], [])
         pipelines.append({
             **p, **state,
@@ -289,6 +384,31 @@ async def admin_toggle_client(cid: str, request: Request):
         return RedirectResponse("/login", status_code=303)
     db.toggle_active(cid)
     return RedirectResponse("/admin", status_code=303)
+
+
+@app.post("/admin/schedule/{pipeline}")
+async def admin_set_schedule(pipeline: str, request: Request):
+    s = _require_admin(request)
+    if not s:
+        return JSONResponse({"error": "não autorizado"}, status_code=401)
+
+    if pipeline not in SCRIPTS:
+        return JSONResponse({"error": "pipeline desconhecido"}, status_code=400)
+
+    body = await request.json()
+    times = body.get("times", [])
+    if not isinstance(times, list):
+        return JSONResponse({"error": "'times' deve ser uma lista"}, status_code=422)
+    for t in times:
+        if not re.match(r"^\d{1,2}:\d{2}$", t or ""):
+            return JSONResponse({"error": f"horário inválido: {t}"}, status_code=422)
+
+    try:
+        _set_pipeline_schedule(pipeline, times)
+    except RuntimeError as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+    return {"ok": True, "times": sorted(times)}
 
 
 # ── pipeline routes (admin only) ──────────────────────────────────────────────
