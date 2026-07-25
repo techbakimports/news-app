@@ -391,7 +391,7 @@
 // ── Agendamento ────────────────────────────────────────────
 const scheduleState = {};
 {% for p in pipelines %}
-scheduleState['{{ p.key }}'] = {{ p.schedule_times | tojson }};
+scheduleState['{{ p.key }}'] = {{ p.schedule_times | tojson | safe }};
 {% endfor %}
 
 function renderChips(key) {
