@@ -284,6 +284,11 @@
       <span>●</span>
       <span id="token-msg">verificando...</span>
     </div>
+    <div id="tiktok-badge" class="err">
+      <span>●</span>
+      <span id="tiktok-msg">verificando...</span>
+    </div>
+    <a href="/admin/tiktok/connect" class="btn-logout">Conectar TikTok</a>
     <span>{{ session.name }}</span>
     <a href="/logout" class="btn-logout">Sair</a>
   </div>
@@ -454,11 +459,24 @@ async function checkToken() {
     const badge = document.getElementById('token-badge');
     badge.classList.remove('ok','err');
     badge.classList.add(d.ok ? 'ok' : 'err');
-    document.getElementById('token-msg').textContent = d.msg;
+    document.getElementById('token-msg').textContent = 'YouTube: ' + d.msg;
   } catch(e) {}
 }
 checkToken();
 setInterval(checkToken, 60_000);
+
+async function checkTiktok() {
+  try {
+    const r = await fetch('/tiktok-status');
+    const d = await r.json();
+    const badge = document.getElementById('tiktok-badge');
+    badge.classList.remove('ok','err');
+    badge.classList.add(d.ok ? 'ok' : 'err');
+    document.getElementById('tiktok-msg').textContent = 'TikTok: ' + d.msg;
+  } catch(e) {}
+}
+checkTiktok();
+setInterval(checkTiktok, 60_000);
 
 async function runPipeline(key) {
   const btn = document.getElementById('btn-' + key);

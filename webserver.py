@@ -33,6 +33,8 @@ templates.env.filters["tojson"] = json.dumps
 _pipeline_status: dict[str, dict] = {}
 # status por cliente (user_id → dict)
 _client_status: dict[str, dict] = {}
+# state do OAuth do TikTok em andamento (single-admin, não precisa ser por sessão)
+_tiktok_oauth_state: str | None = None
 
 TOKEN_PATH = "credentials/token.json"
 
@@ -106,6 +108,15 @@ def _get_token_status() -> dict:
         return {"ok": False, "msg": "Token expirado — reautenticar necessário", "expiry": None}
     except Exception as e:
         return {"ok": False, "msg": f"Erro ao ler token: {e}", "expiry": None}
+
+
+def _get_tiktok_status() -> dict:
+    try:
+        from tiktok_publisher import check_tiktok_token
+        ok, msg = check_tiktok_token()
+        return {"ok": ok, "msg": msg}
+    except Exception as e:
+        return {"ok": False, "msg": f"Erro: {e}"}
 
 
 def _pipeline_state(key: str) -> dict:
@@ -322,7 +333,7 @@ async def root(request: Request):
 # ── admin routes ───────────────────────────────────────────────────────────────
 
 @app.get("/admin", response_class=HTMLResponse)
-async def admin_dashboard(request: Request, created: str = None, error: str = None):
+async def admin_dashboard(request: Request, created: str = None, error: str = None, tiktok_ok: str = None):
     s = _require_admin(request)
     if not s:
         return RedirectResponse("/login", status_code=303)
@@ -345,9 +356,19 @@ async def admin_dashboard(request: Request, created: str = None, error: str = No
     if created:
         client_msg = f"Cliente {created} criado com sucesso."
         client_ok = True
+    elif tiktok_ok:
+        client_msg = "TikTok conectado com sucesso."
+        client_ok = True
     elif error:
-        msgs = {"duplicate": "Este e-mail já está cadastrado.", "short_password": "A senha deve ter pelo menos 6 caracteres."}
-        client_msg = msgs.get(error, "Erro ao criar cliente.")
+        msgs = {
+            "duplicate": "Este e-mail já está cadastrado.",
+            "short_password": "A senha deve ter pelo menos 6 caracteres.",
+            "tiktok_config": "TikTok não configurado — defina TIKTOK_CLIENT_KEY no .env.",
+            "tiktok_denied": "Autorização do TikTok negada ou cancelada.",
+            "tiktok_state": "Sessão de autorização do TikTok expirada — tente novamente.",
+            "tiktok_token": "Falha ao trocar o código de autorização do TikTok pelo token.",
+        }
+        client_msg = msgs.get(error, "Erro ao processar solicitação.")
 
     return templates.TemplateResponse(
         request=request, name="dashboard.html",
@@ -421,6 +442,50 @@ async def status():
 @app.get("/token-status")
 async def token_status():
     return _get_token_status()
+
+
+@app.get("/tiktok-status")
+async def tiktok_status():
+    return _get_tiktok_status()
+
+
+@app.get("/admin/tiktok/connect")
+async def admin_tiktok_connect(request: Request):
+    global _tiktok_oauth_state
+    s = _require_admin(request)
+    if not s:
+        return RedirectResponse("/login", status_code=303)
+
+    try:
+        from tiktok_publisher import get_authorization_url
+        url, state = get_authorization_url()
+    except Exception as e:
+        return RedirectResponse(f"/admin?error=tiktok_config&msg={e}", status_code=303)
+
+    _tiktok_oauth_state = state
+    return RedirectResponse(url, status_code=303)
+
+
+@app.get("/tiktok/callback")
+async def tiktok_callback(request: Request, code: str = None, state: str = None, error: str = None):
+    global _tiktok_oauth_state
+    s = _require_admin(request)
+    if not s:
+        return RedirectResponse("/login", status_code=303)
+
+    if error:
+        return RedirectResponse("/admin?error=tiktok_denied", status_code=303)
+    if not code or not state or state != _tiktok_oauth_state:
+        return RedirectResponse("/admin?error=tiktok_state", status_code=303)
+
+    _tiktok_oauth_state = None
+    try:
+        from tiktok_publisher import exchange_code_for_token
+        exchange_code_for_token(code)
+    except Exception:
+        return RedirectResponse("/admin?error=tiktok_token", status_code=303)
+
+    return RedirectResponse("/admin?tiktok_ok=1", status_code=303)
 
 
 @app.post("/run/{pipeline}")
