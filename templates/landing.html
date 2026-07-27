@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Youtuber no Automático — Vídeos curtos gerados por IA</title>
+  <meta name="description" content="Plataforma que gera e publica automaticamente vídeos curtos (Shorts) de notícias, entretenimento, tecnologia, curiosidades e ofertas no YouTube e TikTok.">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #0f0f0f;
+      color: #e8e8e8;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      line-height: 1.6;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 1.2rem 1.5rem;
+      background: #181818;
+      border-bottom: 1px solid #2a2a2a;
+    }
+    .brand { display: flex; align-items: center; gap: .6rem; }
+    .brand span { font-size: 1.5rem; }
+    .brand h1 { font-size: 1.05rem; font-weight: 700; color: #fff; }
+    .btn-login {
+      padding: .5rem 1.2rem;
+      background: #ff3b3b;
+      border: none;
+      border-radius: 8px;
+      color: #fff;
+      font-size: .88rem;
+      font-weight: 600;
+      text-decoration: none;
+    }
+    .btn-login:hover { background: #e02e2e; }
+
+    .hero {
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 4rem 1.5rem 3rem;
+      text-align: center;
+    }
+    .hero h2 {
+      font-size: 2.1rem;
+      font-weight: 800;
+      color: #fff;
+      margin-bottom: 1rem;
+      line-height: 1.25;
+    }
+    .hero p.lead {
+      font-size: 1.05rem;
+      color: #aaa;
+      max-width: 560px;
+      margin: 0 auto 2rem;
+    }
+
+    .platforms {
+      display: flex;
+      justify-content: center;
+      gap: .75rem;
+      flex-wrap: wrap;
+      margin-bottom: 3rem;
+    }
+    .platform-pill {
+      font-size: .82rem;
+      padding: .4rem 1rem;
+      background: #181818;
+      border: 1px solid #2a2a2a;
+      border-radius: 99px;
+      color: #ccc;
+    }
+
+    section {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 0 1.5rem 3rem;
+    }
+    section h3 {
+      font-size: 1.3rem;
+      color: #fff;
+      margin-bottom: 1.5rem;
+      text-align: center;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1rem;
+    }
+    .card {
+      background: #181818;
+      border: 1px solid #2a2a2a;
+      border-radius: 12px;
+      padding: 1.3rem;
+    }
+    .card .icon { font-size: 1.6rem; margin-bottom: .6rem; display: block; }
+    .card h4 { font-size: .95rem; color: #fff; margin-bottom: .4rem; }
+    .card p { font-size: .82rem; color: #999; }
+
+    .how {
+      max-width: 700px;
+      margin: 0 auto;
+      padding: 0 1.5rem 4rem;
+    }
+    .how h3 { font-size: 1.3rem; color: #fff; margin-bottom: 1.2rem; text-align: center; }
+    .how ol { padding-left: 1.3rem; }
+    .how li { font-size: .92rem; color: #ccc; margin-bottom: .7rem; }
+
+    footer {
+      border-top: 1px solid #2a2a2a;
+      padding: 2rem 1.5rem;
+      text-align: center;
+    }
+    footer .links { margin-bottom: .8rem; }
+    footer a { color: #60a5fa; text-decoration: none; font-size: .85rem; margin: 0 .6rem; }
+    footer a:hover { text-decoration: underline; }
+    footer p { font-size: .78rem; color: #555; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <span>🎬</span>
+    <h1>Youtuber no Automático</h1>
+  </div>
+  <a href="/login" class="btn-login">Entrar</a>
+</header>
+
+<div class="hero">
+  <h2>Vídeos curtos gerados por IA, publicados todos os dias</h2>
+  <p class="lead">
+    Uma plataforma que busca conteúdo relevante, escreve o roteiro, narra com voz sintética,
+    monta o vídeo vertical e publica automaticamente — sem edição manual.
+  </p>
+  <div class="platforms">
+    <span class="platform-pill">▶️ YouTube Shorts</span>
+    <span class="platform-pill">🎵 TikTok</span>
+  </div>
+</div>
+
+<section>
+  <h3>O que publicamos</h3>
+  <div class="grid">
+    <div class="card">
+      <span class="icon">📰</span>
+      <h4>Notícias</h4>
+      <p>Resumos diários das principais notícias do Brasil.</p>
+    </div>
+    <div class="card">
+      <span class="icon">🎤</span>
+      <h4>Celebridades</h4>
+      <p>Entretenimento e novidades do mundo dos famosos.</p>
+    </div>
+    <div class="card">
+      <span class="icon">💻</span>
+      <h4>Tecnologia</h4>
+      <p>As notícias mais relevantes de tech, todo dia.</p>
+    </div>
+    <div class="card">
+      <span class="icon">🧠</span>
+      <h4>Curiosidades</h4>
+      <p>Fatos surpreendentes em formato rápido e direto.</p>
+    </div>
+    <div class="card">
+      <span class="icon">🛍️</span>
+      <h4>Ofertas e Achadinhos</h4>
+      <p>Produtos em promoção, com divulgação de publicidade sempre que aplicável.</p>
+    </div>
+    <div class="card">
+      <span class="icon">🎭</span>
+      <h4>Novela IA</h4>
+      <p>Episódios diários de drama roteirizados por inteligência artificial.</p>
+    </div>
+  </div>
+</section>
+
+<div class="how">
+  <h3>Como funciona</h3>
+  <ol>
+    <li>O sistema busca o conteúdo mais relevante do dia em cada categoria.</li>
+    <li>Um modelo de linguagem escreve o roteiro e a narração.</li>
+    <li>Uma voz sintética grava o áudio e o vídeo vertical é montado automaticamente.</li>
+    <li>O vídeo é publicado diretamente nas contas conectadas de YouTube e TikTok.</li>
+  </ol>
+</div>
+
+<footer>
+  <div class="links">
+    <a href="/terms">Termos de Uso</a>
+    <a href="/privacy">Política de Privacidade</a>
+    <a href="/login">Entrar</a>
+  </div>
+  <p>Youtuber no Automático &copy; 2026</p>
+</footer>
+
+</body>
+</html>

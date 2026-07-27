@@ -331,7 +331,10 @@ async def root(request: Request):
     s = _require_session(request)
     if s:
         return _redirect_by_role(s)
-    return RedirectResponse("/login", status_code=303)
+    # Visitante anônimo vê a apresentação pública do serviço, não um redirect
+    # direto pro login — exigido por integrações OAuth (TikTok) que rejeitam
+    # "website URL" apontando pra uma tela de login.
+    return templates.TemplateResponse(request=request, name="landing.html", context={})
 
 
 # ── páginas públicas (Termos de Uso / Privacidade) ──────────────────────────────
