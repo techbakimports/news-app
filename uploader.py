@@ -26,20 +26,27 @@ def _is_headless():
     return not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY")
 
 
-def _get_credentials():
+def _get_credentials(token_file: str | None = None):
+    """
+    Carrega/renova credenciais OAuth do YouTube.
+
+    token_file: caminho de um token.json alternativo (ex: canal de outro país).
+                Se None, usa o TOKEN_FILE padrão (canal principal).
+    """
+    token_path = token_file or TOKEN_FILE
     creds = None
-    if os.path.exists(TOKEN_FILE):
+    if os.path.exists(token_path):
         try:
             # Formato JSON (atual)
-            creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
+            creds = Credentials.from_authorized_user_file(token_path, SCOPES)
         except Exception:
             # Migração: arquivo ainda está no formato pickle antigo
             try:
-                with open(TOKEN_FILE, "rb") as f:
+                with open(token_path, "rb") as f:
                     creds = pickle.load(f)
                 # Converte imediatamente para JSON
                 if creds:
-                    with open(TOKEN_FILE, "w", encoding="utf-8") as f:
+                    with open(token_path, "w", encoding="utf-8") as f:
                         f.write(creds.to_json())
             except Exception:
                 creds = None
@@ -59,13 +66,15 @@ def _get_credentials():
             # Sem terminal interativo → falhar rápido (evita travar subprocess)
             if not sys.stdin or not sys.stdin.isatty():
                 raise RuntimeError(
-                    "Token YouTube expirado/revogado. Reautenticação interativa "
-                    "não disponível (sem terminal).\n"
+                    f"Token YouTube expirado/revogado ({token_path}). Reautenticação "
+                    "interativa não disponível (sem terminal).\n"
                     "Pra corrigir:\n"
-                    "1. No PC com browser, apague credentials/token.json\n"
-                    "2. Rode: python -c \"from uploader import _get_credentials; _get_credentials()\"\n"
-                    "3. Faça login no Google quando o browser abrir\n"
-                    "4. Copie o novo token.json pra VPS: scp credentials/token.json rocky@<vps>:~/news-app/credentials/"
+                    f"1. No PC com browser, apague {token_path}\n"
+                    "2. Rode: python -c \"from uploader import _get_credentials; "
+                    f"_get_credentials(token_file={token_path!r})\"\n"
+                    "3. Faça login no Google quando o browser abrir (na conta do canal certo)\n"
+                    f"4. Copie o novo {os.path.basename(token_path)} pra VPS: "
+                    f"scp {token_path} rocky@<vps>:~/news-app/credentials/"
                 )
             if not os.path.exists(SECRETS_FILE):
                 raise FileNotFoundError(
@@ -80,18 +89,21 @@ def _get_credentials():
                 creds = flow.run_console()
             else:
                 creds = flow.run_local_server(port=0)
-        with open(TOKEN_FILE, "w", encoding="utf-8") as f:
+        os.makedirs(os.path.dirname(token_path), exist_ok=True)
+        with open(token_path, "w", encoding="utf-8") as f:
             f.write(creds.to_json())
     return creds
 
 
-def check_youtube_token() -> tuple[bool, str]:
+def check_youtube_token(token_file: str | None = None) -> tuple[bool, str]:
     """
     Verifica o token fazendo uma chamada real na API do YouTube.
     Renova automaticamente se expirado. Retorna (ok, mensagem).
+
+    token_file: canal alternativo a verificar (ex: credentials/token_japao.json).
     """
     try:
-        svc = get_youtube_service()
+        svc = get_youtube_service(token_file=token_file)
         svc.channels().list(part="id", mine=True).execute()
         return True, "Token válido"
     except Exception as e:
@@ -101,18 +113,24 @@ def check_youtube_token() -> tuple[bool, str]:
         return False, f'Erro ao validar token: {e}'
 
 
-def get_youtube_service():
+def get_youtube_service(token_file: str | None = None):
     """Retorna instância autenticada do YouTube Data API v3."""
-    return build("youtube", "v3", credentials=_get_credentials())
+    return build("youtube", "v3", credentials=_get_credentials(token_file=token_file))
 
 
-def upload_video(video_path, title, description, tags=None, publish_at_hour=6, privacy="private"):
+def upload_video(video_path, title, description, tags=None, publish_at_hour=6, privacy="private",
+                  language: str = "pt", token_file: str | None = None):
     """
     Faz upload do vídeo para o YouTube e agenda a publicação.
 
     privacy="private"  → vídeo fica privado até publish_at_hour (recomendado para testes)
     privacy="public"   → publicado imediatamente
     privacy="scheduled" → agenda para publish_at_hour no dia seguinte (requer privacyStatus="private" + publishAt)
+
+    language: código de idioma do vídeo (defaultLanguage/defaultAudioLanguage). "pt" por padrão
+              (canal principal); pipelines de outros países passam "ja", "fr", "de", "it", etc.
+    token_file: caminho de um token.json alternativo — usado por pipelines com canal próprio
+                (ex: credentials/token_japao.json). None usa o canal principal.
 
     Retorna o ID do vídeo no YouTube.
     """
@@ -124,7 +142,7 @@ def upload_video(video_path, title, description, tags=None, publish_at_hour=6, p
     if len(description) > 4900:
         description = description[:4900] + "\n..."
 
-    creds = _get_credentials()
+    creds = _get_credentials(token_file=token_file)
     youtube = build("youtube", "v3", credentials=creds)
 
     # Calcula horário agendado (se for antes do horário alvo de hoje, usa amanhã)
@@ -144,8 +162,8 @@ def upload_video(video_path, title, description, tags=None, publish_at_hour=6, p
             "description": description,
             "tags": tags or [],
             "categoryId": YOUTUBE_CATEGORY_NEWS,
-            "defaultLanguage": "pt",
-            "defaultAudioLanguage": "pt",
+            "defaultLanguage": language,
+            "defaultAudioLanguage": language,
         },
         "status": status_body,
     }

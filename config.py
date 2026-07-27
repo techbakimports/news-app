@@ -80,6 +80,74 @@ CATEGORY_VOICES = {
     # fallback implícito: TTS_VOICE (Antonio) para qualquer categoria não listada
 }
 
+# Locales do pipeline de notícias internacionais (international_news.py).
+# Cada país publica num canal do YouTube próprio (token.json separado) —
+# ver credentials/token_<locale>.json, criado pelo usuário via OAuth.
+# Nomes de voz Edge TTS confirmados via `python -m edge_tts --list-voices`.
+LOCALES = {
+    "india": {
+        "label":       "Índia",
+        "hl": "en-IN", "gl": "IN", "ceid": "IN:en",
+        "voice":       "en-IN-NeerjaNeural",
+        "language":    "en",
+        "token_file":  "credentials/token_india.json",
+        "playlist_key": "india",
+        "badge_label": "NEWS",
+        "link_label":  "📎 Read the full story:",
+        "source_label": "Source:",
+        "hashtags":    ["Shorts", "IndiaNews", "News", "India"],
+    },
+    "japao": {
+        "label":       "Japão",
+        "hl": "ja",    "gl": "JP", "ceid": "JP:ja",
+        "voice":       "ja-JP-NanamiNeural",
+        "language":    "ja",
+        "token_file":  "credentials/token_japao.json",
+        "playlist_key": "japao",
+        "badge_label": "ニュース",
+        "cjk_font":    True,
+        "link_label":  "📎 詳しい記事はこちら:",
+        "source_label": "情報源:",
+        "hashtags":    ["Shorts", "News", "Japan", "ニュース"],
+    },
+    "franca": {
+        "label":       "França",
+        "hl": "fr",    "gl": "FR", "ceid": "FR:fr",
+        "voice":       "fr-FR-DeniseNeural",
+        "language":    "fr",
+        "token_file":  "credentials/token_franca.json",
+        "playlist_key": "franca",
+        "badge_label": "ACTUALITÉS",
+        "link_label":  "📎 Lire l'article complet:",
+        "source_label": "Source:",
+        "hashtags":    ["Shorts", "ActualitesFrance", "News", "France"],
+    },
+    "alemanha": {
+        "label":       "Alemanha",
+        "hl": "de",    "gl": "DE", "ceid": "DE:de",
+        "voice":       "de-DE-KatjaNeural",
+        "language":    "de",
+        "token_file":  "credentials/token_alemanha.json",
+        "playlist_key": "alemanha",
+        "badge_label": "NACHRICHTEN",
+        "link_label":  "📎 Ganzen Artikel lesen:",
+        "source_label": "Quelle:",
+        "hashtags":    ["Shorts", "NachrichtenDeutschland", "News", "Deutschland"],
+    },
+    "italia": {
+        "label":       "Itália",
+        "hl": "it",    "gl": "IT", "ceid": "IT:it",
+        "voice":       "it-IT-ElsaNeural",
+        "language":    "it",
+        "token_file":  "credentials/token_italia.json",
+        "playlist_key": "italia",
+        "badge_label": "NOTIZIE",
+        "link_label":  "📎 Leggi l'articolo completo:",
+        "source_label": "Fonte:",
+        "hashtags":    ["Shorts", "NotizieItalia", "News", "Italia"],
+    },
+}
+
 DRIVE_SYNC_DIR = os.environ.get(
     "DRIVE_SYNC_DIR",
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "roteiros"),

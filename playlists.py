@@ -38,6 +38,36 @@ PLAYLIST_DEFS = {
                         "Publicidade — os vídeos contêm link de afiliado.",
         "keywords": ["achadinhos", "promoção", "oferta shopee"],
     },
+    "india": {
+        "title": "India News 🇮🇳",
+        "description": "Daily top news from India, generated with AI.",
+        "keywords": ["india news", "daily news india"],
+        "language": "en",
+    },
+    "japao": {
+        "title": "日本のニュース 🇯🇵",
+        "description": "AIが生成する日本の主要ニュースを毎日配信。",
+        "keywords": ["日本 ニュース", "今日のニュース"],
+        "language": "ja",
+    },
+    "franca": {
+        "title": "Actualités France 🇫🇷",
+        "description": "Les principales actualités françaises du jour, générées par IA.",
+        "keywords": ["actualités france", "info du jour"],
+        "language": "fr",
+    },
+    "alemanha": {
+        "title": "Nachrichten Deutschland 🇩🇪",
+        "description": "Die wichtigsten Nachrichten aus Deutschland, täglich per KI erstellt.",
+        "keywords": ["nachrichten deutschland", "news heute"],
+        "language": "de",
+    },
+    "italia": {
+        "title": "Notizie Italia 🇮🇹",
+        "description": "Le principali notizie italiane del giorno, generate con l'IA.",
+        "keywords": ["notizie italia", "news del giorno"],
+        "language": "it",
+    },
     "rain": {
         "title": "Chuva para Dormir e Relaxar 🌧️",
         "description": "Horas de sons de chuva para dormir, estudar e relaxar.",
@@ -83,10 +113,10 @@ def _save_ids(ids: dict) -> None:
         json.dump(ids, f, ensure_ascii=False, indent=2)
 
 
-def _build_youtube():
+def _build_youtube(token_file: str | None = None):
     from uploader import _get_credentials
     from googleapiclient.discovery import build
-    return build("youtube", "v3", credentials=_get_credentials())
+    return build("youtube", "v3", credentials=_get_credentials(token_file=token_file))
 
 
 def _get_or_create_playlist(youtube, key: str) -> str:
@@ -102,7 +132,7 @@ def _get_or_create_playlist(youtube, key: str) -> str:
             "snippet": {
                 "title": defn["title"],
                 "description": defn["description"],
-                "defaultLanguage": "pt",
+                "defaultLanguage": defn.get("language", "pt"),
             },
             "status": {"privacyStatus": "public"},
         },
@@ -115,17 +145,20 @@ def _get_or_create_playlist(youtube, key: str) -> str:
     return playlist_id
 
 
-def add_to_playlist(video_id: str, playlist_key: str) -> bool:
+def add_to_playlist(video_id: str, playlist_key: str, token_file: str | None = None) -> bool:
     """
     Adiciona video_id à playlist correspondente a playlist_key.
     Cria a playlist no YouTube se ela ainda não existir.
     Retorna True em sucesso (inclusive se já estava na playlist).
+
+    token_file: canal alternativo (ex: credentials/token_japao.json) — necessário
+                quando o vídeo foi publicado num canal diferente do principal.
     """
     if playlist_key not in PLAYLIST_DEFS:
         print(f"  Chave de playlist desconhecida: {playlist_key!r}")
         return False
 
-    youtube = _build_youtube()
+    youtube = _build_youtube(token_file=token_file)
     playlist_id = _get_or_create_playlist(youtube, playlist_key)
 
     try:

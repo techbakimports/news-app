@@ -63,7 +63,21 @@ CATEGORY_COLORS = {
 DEFAULT_COLOR = (100, 100, 200)
 
 
-def _get_font(size, bold=False):
+def _get_font(size, bold=False, cjk=False):
+    """
+    cjk=True prioriza fontes com suporte a japonês/chinês/coreano (Noto Sans CJK)
+    ANTES das fontes Latin-only — necessário pro pipeline internacional (Japão),
+    senão glifos CJK viram caixinhas vazias mesmo com a fonte CJK instalada,
+    porque Liberation/DejaVu (Latin-only) aparecem primeiro na lista e "existem"
+    no sistema também.
+    """
+    cjk_candidates = [
+        "C:/Windows/Fonts/msgothic.ttc"   if not bold else "C:/Windows/Fonts/msgothic.ttc",
+        "C:/Windows/Fonts/meiryob.ttc"    if bold else "C:/Windows/Fonts/meiryo.ttc",
+        "C:/Windows/Fonts/YuGothB.ttc"    if bold else "C:/Windows/Fonts/YuGothR.ttc",
+        "/usr/share/fonts/google-noto-cjk/NotoSansCJK-Bold.ttc"  if bold else "/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc"    if bold else "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    ]
     candidates = [
         # Windows
         "C:/Windows/Fonts/arialbd.ttf"   if bold else "C:/Windows/Fonts/arial.ttf",
@@ -80,6 +94,8 @@ def _get_font(size, bold=False):
         "/usr/share/fonts/google-noto/NotoSans-Bold.ttf"                  if bold else "/usr/share/fonts/google-noto/NotoSans-Regular.ttf",
         "/usr/share/fonts/google-noto-cjk/NotoSansCJK-Bold.ttc"          if bold else "/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc",
     ]
+    if cjk:
+        candidates = cjk_candidates + candidates
     for path in candidates:
         if os.path.exists(path):
             try:

@@ -318,6 +318,52 @@ async def fetch_by_custom_queries(queries: list[str], limit_per_query: int = 5) 
     return all_news
 
 
+def fetch_topheadlines_by_locale(hl: str, gl: str, ceid: str, limit: int = 10) -> list[dict]:
+    """
+    Busca as principais notícias da edição do Google News de um país/idioma
+    específico (feed de "top headlines", sem query nem filtro de site).
+
+    Usado pelo pipeline de notícias internacionais (international_news.py) —
+    evita precisar de uma lista curada de sites confiáveis por país.
+
+    Args:
+        hl: idioma da interface (ex: "ja", "fr", "en-IN")
+        gl: país da edição (ex: "JP", "FR", "IN")
+        ceid: combinação país:idioma exigida pelo Google News (ex: "JP:ja")
+        limit: máximo de itens retornados
+
+    Retorna lista no mesmo formato de fetch_by_custom_queries().
+    """
+    url = f"https://news.google.com/rss?hl={hl}&gl={gl}&ceid={ceid}"
+
+    all_news = []
+    seen: set[str] = set()
+    try:
+        feed = feedparser.parse(url)
+        for entry in feed.entries:
+            if len(all_news) >= limit:
+                break
+            title = getattr(entry, "title", "").strip()
+            link  = getattr(entry, "link", "").strip()
+            if not title or link in seen:
+                continue
+            seen.add(link)
+            real_link = _resolve_google_news_url(link) if "news.google.com" in link else link
+            all_news.append({
+                "category": "International News",
+                "source":   getattr(entry, "source", {}).get("title", "Google News"),
+                "titulo":   title,
+                "title":    title,
+                "link":     real_link,
+                "published": getattr(entry, "published", ""),
+                "summary":  getattr(entry, "summary", ""),
+            })
+    except Exception as e:
+        print(f"  [fetcher] fetch_topheadlines_by_locale falhou ({hl}/{gl}): {e}")
+
+    return all_news
+
+
 def extract_article_content(url):
     """
     Tenta extrair o texto principal de uma notícia via URL.

@@ -45,6 +45,11 @@ PIPELINES = [
     {"key": "curiosidades", "label": "Curiosidades", "icon": "🧠"},
     {"key": "novela",       "label": "Novela IA",    "icon": "🎭"},
     {"key": "produtos",     "label": "Produtos",     "icon": "🛍️"},
+    {"key": "india",        "label": "Índia",        "icon": "🇮🇳"},
+    {"key": "japao",        "label": "Japão",        "icon": "🇯🇵"},
+    {"key": "franca",       "label": "França",       "icon": "🇫🇷"},
+    {"key": "alemanha",     "label": "Alemanha",     "icon": "🇩🇪"},
+    {"key": "italia",       "label": "Itália",       "icon": "🇮🇹"},
 ]
 
 SCRIPTS = {
@@ -54,12 +59,22 @@ SCRIPTS = {
     "curiosidades": "curiosidades.py",
     "novela":       "novela.py",
     "produtos":     "afiliados.py",
+    "india":        "international_news.py",
+    "japao":        "international_news.py",
+    "franca":       "international_news.py",
+    "alemanha":     "international_news.py",
+    "italia":       "international_news.py",
 }
 
 # Argumentos extras que o crontab já usa pra cada script (preservados ao
 # regenerar a linha de agendamento pela interface).
 SCRIPT_ARGS = {
-    "tech": ["--apenas-youtube"],
+    "tech":     ["--apenas-youtube"],
+    "india":    ["--locale", "india"],
+    "japao":    ["--locale", "japao"],
+    "franca":   ["--locale", "franca"],
+    "alemanha": ["--locale", "alemanha"],
+    "italia":   ["--locale", "italia"],
 }
 
 # Tag usada no comentário do crontab (# YOUTUBER:<tag>) → chave do pipeline no dashboard.
@@ -71,6 +86,11 @@ CRON_TAG_TO_KEY = {
     "curiosidades": "curiosidades",
     "novela":       "novela",
     "produtos":     "produtos",
+    "india":        "india",
+    "japao":        "japao",
+    "franca":       "franca",
+    "alemanha":     "alemanha",
+    "italia":       "italia",
 }
 KEY_TO_CRON_TAG = {v: k for k, v in CRON_TAG_TO_KEY.items()}
 
@@ -81,6 +101,11 @@ LOG_FILES = {
     "curiosidades": "logs/curiosidades.log",
     "novela":       "logs/novela.log",
     "produtos":     "logs/afiliados.log",
+    "india":        "logs/international_india.log",
+    "japao":        "logs/international_japao.log",
+    "franca":       "logs/international_franca.log",
+    "alemanha":     "logs/international_alemanha.log",
+    "italia":       "logs/international_italia.log",
 }
 
 _ERROR_MARKERS = ("Traceback (most recent call last)", "❌", "ERRO FATAL", "Pipeline abortado")

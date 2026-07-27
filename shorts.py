@@ -273,8 +273,13 @@ def _render_short_frame(
     category: str,
     source: str,
     price_text: str | None = None,
+    cjk_font: bool = False,
 ) -> np.ndarray:
     """Renderiza frame vertical com título, resumo e elementos de UI.
+
+    cjk_font: use fonte com suporte a japonês/chinês/coreano (necessário pro
+              pipeline internacional em japonês — senão os glifos viram
+              caixinhas vazias mesmo com a fonte CJK instalada no sistema).
 
     price_text: se fornecido, desenha um badge de preço/desconto logo após o
     separador colorido, antes do bloco de resumo (ex: vídeos de produto/afiliado).
@@ -290,7 +295,7 @@ def _render_short_frame(
     max_w = SHORTS_W - padding * 2
 
     # --- Badge de categoria (topo) ---
-    f_badge = _get_font(44, bold=True)
+    f_badge = _get_font(44, bold=True, cjk=cjk_font)
     badge_text = f" {category.upper()} "
     bbox = draw.textbbox((0, 0), badge_text, font=f_badge)
     bw, bh = bbox[2] + 32, bbox[3] + 20
@@ -302,18 +307,18 @@ def _render_short_frame(
     draw.text((padding + 16, badge_y + 10), badge_text.strip(), font=f_badge, fill=(255, 255, 255, 255))
 
     # --- Nome do canal (topo direito) ---
-    f_channel = _get_font(36)
+    f_channel = _get_font(36, cjk=cjk_font)
     ch_bbox = draw.textbbox((0, 0), CHANNEL_NAME, font=f_channel)
     cx = SHORTS_W - ch_bbox[2] - padding
     draw.text((cx, badge_y + 12), CHANNEL_NAME, font=f_channel, fill=(220, 220, 220, 180))
 
     # --- Data (abaixo do badge) ---
-    f_date = _get_font(32)
+    f_date = _get_font(32, cjk=cjk_font)
     date_str = datetime.now().strftime("%d/%m/%Y")
     draw.text((padding, badge_y + bh + 16), date_str, font=f_date, fill=(180, 180, 180, 160))
 
     # --- Título (zona central, 40% da altura) ---
-    f_title = _get_font(72, bold=True)
+    f_title = _get_font(72, bold=True, cjk=cjk_font)
     title_lines = _wrap_text(draw, title, f_title, max_w)[:4]
     title_block_h = len(title_lines) * 86
     title_y = int(SHORTS_H * 0.40) - title_block_h // 2
@@ -330,7 +335,7 @@ def _render_short_frame(
 
     # --- Badge de preço/desconto (opcional — vídeos de produto/afiliado) ---
     if price_text:
-        f_price = _get_font(52, bold=True)
+        f_price = _get_font(52, bold=True, cjk=cjk_font)
         pbbox = draw.textbbox((0, 0), price_text, font=f_price)
         pw, ph = pbbox[2] + 40, pbbox[3] + 24
         draw.rounded_rectangle(
@@ -341,7 +346,7 @@ def _render_short_frame(
         content_y += ph + 24
 
     # --- Resumo (abaixo do separador e do badge de preço, se houver) ---
-    f_summary = _get_font(46)
+    f_summary = _get_font(46, cjk=cjk_font)
     summary_lines = _wrap_text(draw, summary, f_summary, max_w)[:6]
     sum_y = content_y
     for i, line in enumerate(summary_lines):
@@ -349,7 +354,7 @@ def _render_short_frame(
         draw.text((padding, sum_y + i * 58), line, font=f_summary, fill=(230, 230, 230, 220))
 
     # --- Fonte (rodapé) ---
-    f_source = _get_font(34)
+    f_source = _get_font(34, cjk=cjk_font)
     source_text = f"📰 {source}"
     src_bbox = draw.textbbox((0, 0), source_text, font=f_source)
     src_y = SHORTS_H - 90
@@ -391,6 +396,10 @@ async def generate_short_from_text(
     extra_description: str | None = None,
     keep_local: bool = False,
     on_local_path: Callable[[str], None] | None = None,
+    language: str = "pt",
+    token_file: str | None = None,
+    source_label: str | None = None,
+    cjk_font: bool = False,
 ) -> str | None:
     """
     Gera um Short vertical 1080×1920 a partir de TEXTO PRONTO (sem chamar Gemini).
@@ -428,6 +437,14 @@ async def generate_short_from_text(
                        o vídeo termina de ser montado (antes do upload) — permite capturar
                        o caminho pra reutilizar mesmo quando upload=True apaga o arquivo
                        depois (a menos que keep_local=True).
+        language: código de idioma do vídeo no YouTube (defaultLanguage/defaultAudioLanguage).
+                  "pt" por padrão; pipelines de outros países passam "ja", "fr", "de", "it", etc.
+        token_file: caminho de um token.json alternativo — usado por pipelines com canal
+                    próprio (ex: credentials/token_japao.json). None usa o canal principal.
+        source_label: rótulo antes da fonte na descrição do YouTube. Se None, usa "Fonte:".
+                      Pipelines em outro idioma devem passar a tradução (ex: "Source:").
+        cjk_font: True usa fonte com suporte a japonês/chinês/coreano na renderização
+                  do texto na tela. Necessário pro pipeline internacional em japonês.
 
     Retorna o video_id do YouTube ou None se falhar.
     Retorna None ANTES de gerar nada se narration estiver vazia.
@@ -505,7 +522,7 @@ async def generate_short_from_text(
 
     # 3. Render + monta vídeo
     print("  [3/3] Montando vídeo vertical...")
-    frame = _render_short_frame(bg_arr, title, summary, category, source, price_text=price_text)
+    frame = _render_short_frame(bg_arr, title, summary, category, source, price_text=price_text, cjk_font=cjk_font)
 
     video_clip = (
         ImageClip(frame)
@@ -559,10 +576,11 @@ async def generate_short_from_text(
         label = link_label or "📎 Leia a notícia completa:"
         link_bloco = f"{label}\n{link}\n\n"
     extra_bloco = f"{extra_description}\n\n" if extra_description else ""
+    src_label = source_label or "Fonte:"
     yt_desc = (
         f"{extra_bloco}"
         f"{link_bloco}"
-        f"Fonte: {source}\n"
+        f"{src_label} {source}\n"
         f"📰 {CHANNEL_NAME}\n\n"
         f"{hash_line}"
     )
@@ -573,10 +591,11 @@ async def generate_short_from_text(
     # YouTube
     if youtube_enabled:
         try:
-            video_id = yt_upload(output_path, yt_title, yt_desc, yt_tags, privacy=privacy)
+            video_id = yt_upload(output_path, yt_title, yt_desc, yt_tags, privacy=privacy,
+                                  language=language, token_file=token_file)
             print(f"    YouTube: https://youtu.be/{video_id}")
             try:
-                add_to_playlist(video_id, playlist_key)
+                add_to_playlist(video_id, playlist_key, token_file=token_file)
             except Exception as e:
                 print(f"    add_to_playlist falhou: {e}")
         except Exception as e:
