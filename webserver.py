@@ -334,6 +334,94 @@ async def root(request: Request):
     return RedirectResponse("/login", status_code=303)
 
 
+# ── páginas públicas (Termos de Uso / Privacidade) ──────────────────────────────
+# Sem autenticação — exigidas por integrações OAuth (TikTok, YouTube) que
+# precisam acessar essas URLs publicamente durante a revisão do app.
+
+_TERMS_CONTENT = """
+<h1 class="title">Termos de Uso</h1>
+<p class="updated">Última atualização: 26 de julho de 2026</p>
+
+<h2>1. Sobre o serviço</h2>
+<p>O "Youtuber no Automático" é uma ferramenta de automação de conteúdo que gera e publica vídeos curtos (Shorts) em canais de YouTube e TikTok conectados pelo próprio usuário, usando inteligência artificial para roteirização e narração.</p>
+
+<h2>2. Uso permitido</h2>
+<ul>
+  <li>O serviço é destinado à publicação de conteúdo na(s) própria(s) conta(s) de mídia social do usuário que autoriza o acesso via OAuth.</li>
+  <li>É proibido usar o serviço para publicar conteúdo ofensivo, ilegal, enganoso ou que viole os termos de uso do YouTube, TikTok ou de qualquer plataforma integrada.</li>
+</ul>
+
+<h2>3. Conteúdo de afiliados</h2>
+<p>Quando aplicável, os vídeos gerados podem conter links de afiliados (ex: Shopee, Lomadee), com divulgação clara de publicidade em conformidade com as normas do CONAR. O usuário é responsável por manter essa divulgação sempre que usar o pipeline de produtos.</p>
+
+<h2>4. Isenção de responsabilidade</h2>
+<p>O conteúdo gerado é produzido automaticamente por modelos de inteligência artificial (Groq/Gemini) e pode conter imprecisões. O usuário é responsável por revisar e validar o conteúdo publicado em seu nome.</p>
+
+<h2>5. Disponibilidade</h2>
+<p>O serviço é fornecido "como está", sem garantias de disponibilidade contínua. Manutenções e atualizações podem ocorrer sem aviso prévio.</p>
+
+<h2>6. Alterações nos termos</h2>
+<p>Estes termos podem ser atualizados periodicamente. A data da última atualização estará sempre visível no topo desta página.</p>
+
+<h2>7. Contato</h2>
+<p>Dúvidas sobre estes termos: <a href="mailto:geovane.baker89@gmail.com">geovane.baker89@gmail.com</a></p>
+"""
+
+_PRIVACY_CONTENT = """
+<h1 class="title">Política de Privacidade</h1>
+<p class="updated">Última atualização: 26 de julho de 2026</p>
+
+<h2>1. Quem somos</h2>
+<p>"Youtuber no Automático" é uma ferramenta de automação que gera e publica vídeos curtos (Shorts) em canais de YouTube e TikTok, cobrindo notícias, entretenimento, curiosidades e ofertas de produtos.</p>
+
+<h2>2. Quais dados coletamos</h2>
+<ul>
+  <li><strong>Contas de acesso ao painel administrativo:</strong> nome, e-mail e senha (armazenada de forma criptografada) de administradores e clientes cadastrados.</li>
+  <li><strong>Tokens de autorização OAuth:</strong> quando você conecta uma conta do YouTube ou TikTok, armazenamos o token de acesso/atualização necessário para publicar conteúdo em seu nome, exclusivamente na conta que você autorizou.</li>
+  <li>Não coletamos dados de terceiros nem de espectadores dos vídeos publicados.</li>
+</ul>
+
+<h2>3. Como usamos os dados</h2>
+<ul>
+  <li>Autenticar o acesso ao painel de controle</li>
+  <li>Publicar vídeos automaticamente nas contas de YouTube/TikTok autorizadas pelo próprio usuário</li>
+  <li>Nenhum dado é vendido, alugado ou compartilhado com terceiros para fins de marketing</li>
+</ul>
+
+<h2>4. Armazenamento e segurança</h2>
+<ul>
+  <li>Senhas são armazenadas com hash, nunca em texto claro</li>
+  <li>Tokens de OAuth são armazenados no servidor e usados apenas pelas rotinas automatizadas de publicação</li>
+  <li>Sessões de login expiram automaticamente após 8 horas</li>
+</ul>
+
+<h2>5. Conteúdo de afiliados</h2>
+<p>Alguns vídeos publicados contêm links de afiliados (ex: Shopee, Lomadee). Isso é divulgado de forma clara na narração, na tela e na descrição de cada vídeo, conforme exigido pelas normas de publicidade do CONAR.</p>
+
+<h2>6. Seus direitos</h2>
+<p>Você pode solicitar a exclusão da sua conta e dos dados associados a qualquer momento entrando em contato pelo e-mail abaixo.</p>
+
+<h2>7. Contato</h2>
+<p>Dúvidas sobre privacidade: <a href="mailto:geovane.baker89@gmail.com">geovane.baker89@gmail.com</a></p>
+"""
+
+
+@app.get("/terms", response_class=HTMLResponse)
+async def terms_page(request: Request):
+    return templates.TemplateResponse(
+        request=request, name="legal_page.html",
+        context={"page_title": "Termos de Uso", "content": _TERMS_CONTENT},
+    )
+
+
+@app.get("/privacy", response_class=HTMLResponse)
+async def privacy_page(request: Request):
+    return templates.TemplateResponse(
+        request=request, name="legal_page.html",
+        context={"page_title": "Política de Privacidade", "content": _PRIVACY_CONTENT},
+    )
+
+
 # ── admin routes ───────────────────────────────────────────────────────────────
 
 @app.get("/admin", response_class=HTMLResponse)
