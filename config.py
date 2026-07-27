@@ -76,6 +76,7 @@ CATEGORY_VOICES = {
     "Mercado Financeiro": "pt-BR-FranciscaNeural",
     "Tecnologia":         "pt-BR-FranciscaNeural",
     "Celebridades":       "pt-BR-ThalitaNeural",
+    "Produtos":           "pt-BR-ThalitaNeural",
     # fallback implícito: TTS_VOICE (Antonio) para qualquer categoria não listada
 }
 

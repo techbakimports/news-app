@@ -32,6 +32,12 @@ PLAYLIST_DEFS = {
         "description": "Episódios diários de novela brasileira criados por inteligência artificial.",
         "keywords": ["novela ia", "novela brasileira", "drama ia"],
     },
+    "produtos": {
+        "title": "Achadinhos e Ofertas 🛍️",
+        "description": "Achadinhos, promoções e ofertas de produtos com link de afiliado. "
+                        "Publicidade — os vídeos contêm link de afiliado.",
+        "keywords": ["achadinhos", "promoção", "oferta shopee"],
+    },
     "rain": {
         "title": "Chuva para Dormir e Relaxar 🌧️",
         "description": "Horas de sons de chuva para dormir, estudar e relaxar.",

@@ -58,6 +58,7 @@ CATEGORY_COLORS = {
     "Policial":           (220, 120, 30),    # laranja
     "Curiosidade":        (245, 180, 30),    # amarelo vibrante
     "Celebridades":       (220, 60,  140),   # rosa pink — identidade do nicho
+    "Produtos":           (255, 140, 0),     # laranja Shopee — identidade do nicho
 }
 DEFAULT_COLOR = (100, 100, 200)
 

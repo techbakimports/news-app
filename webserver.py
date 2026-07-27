@@ -44,6 +44,7 @@ PIPELINES = [
     {"key": "tech",         "label": "Tecnologia",   "icon": "💻"},
     {"key": "curiosidades", "label": "Curiosidades", "icon": "🧠"},
     {"key": "novela",       "label": "Novela IA",    "icon": "🎭"},
+    {"key": "produtos",     "label": "Produtos",     "icon": "🛍️"},
 ]
 
 SCRIPTS = {
@@ -52,6 +53,7 @@ SCRIPTS = {
     "tech":         "tech_news.py",
     "curiosidades": "curiosidades.py",
     "novela":       "novela.py",
+    "produtos":     "afiliados.py",
 }
 
 # Argumentos extras que o crontab já usa pra cada script (preservados ao
@@ -68,6 +70,7 @@ CRON_TAG_TO_KEY = {
     "tecnologia":   "tech",
     "curiosidades": "curiosidades",
     "novela":       "novela",
+    "produtos":     "produtos",
 }
 KEY_TO_CRON_TAG = {v: k for k, v in CRON_TAG_TO_KEY.items()}
 
@@ -77,6 +80,7 @@ LOG_FILES = {
     "tech":         "logs/tecnologia.log",
     "curiosidades": "logs/curiosidades.log",
     "novela":       "logs/novela.log",
+    "produtos":     "logs/afiliados.log",
 }
 
 _ERROR_MARKERS = ("Traceback (most recent call last)", "❌", "ERRO FATAL", "Pipeline abortado")

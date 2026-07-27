@@ -5,11 +5,14 @@ Duração: até 3 min por Short — limite máximo do YouTube Shorts (a partir d
 from __future__ import annotations
 import argparse
 import asyncio
+import io
 import os
 import shutil
 import sys
 import numpy as np
+import requests
 from datetime import datetime
+from typing import Callable
 from PIL import Image, ImageDraw
 from moviepy.editor import AudioFileClip, ImageClip
 from dotenv import load_dotenv
@@ -224,6 +227,29 @@ def _dark_overlay(image: Image.Image) -> np.ndarray:
     return np.array(Image.alpha_composite(base, grad).convert("RGB"))
 
 
+def _light_overlay(image: Image.Image) -> np.ndarray:
+    """
+    Escurecimento leve — só o suficiente pra legibilidade do texto nas bordas,
+    preserva o brilho do produto no centro. Usado quando a imagem é um produto
+    (image_url), onde _dark_overlay deixaria a foto escura demais pra vender bem.
+    """
+    base = image.convert("RGBA")
+
+    grad = Image.new("RGBA", (SHORTS_W, SHORTS_H), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(grad)
+    # Gradiente superior mais curto e suave (top 22%)
+    for y in range(int(SHORTS_H * 0.22)):
+        alpha = int(140 * (1 - y / (SHORTS_H * 0.22)))
+        draw.line([(0, y), (SHORTS_W, y)], fill=(0, 0, 0, alpha))
+    # Gradiente inferior (bottom 40%) — onde ficam preço e rodapé
+    start = int(SHORTS_H * 0.60)
+    for y in range(start, SHORTS_H):
+        alpha = int(190 * (y - start) / (SHORTS_H - start))
+        draw.line([(0, y), (SHORTS_W, y)], fill=(0, 0, 0, alpha))
+
+    return np.array(Image.alpha_composite(base, grad).convert("RGB"))
+
+
 def _wrap_text(draw, text, font, max_width):
     words = text.split()
     lines, current = [], []
@@ -246,8 +272,13 @@ def _render_short_frame(
     summary: str,
     category: str,
     source: str,
+    price_text: str | None = None,
 ) -> np.ndarray:
-    """Renderiza frame vertical com título, resumo e elementos de UI."""
+    """Renderiza frame vertical com título, resumo e elementos de UI.
+
+    price_text: se fornecido, desenha um badge de preço/desconto logo após o
+    separador colorido, antes do bloco de resumo (ex: vídeos de produto/afiliado).
+    """
     color = CATEGORY_COLORS.get(category, DEFAULT_COLOR)
     r, g, b = color
 
@@ -295,11 +326,24 @@ def _render_short_frame(
     # --- Separador colorido ---
     sep_y = title_y + title_block_h + 24
     draw.rectangle([(padding, sep_y), (padding + 120, sep_y + 6)], fill=(r, g, b, 255))
+    content_y = sep_y + 30
 
-    # --- Resumo (abaixo do separador) ---
+    # --- Badge de preço/desconto (opcional — vídeos de produto/afiliado) ---
+    if price_text:
+        f_price = _get_font(52, bold=True)
+        pbbox = draw.textbbox((0, 0), price_text, font=f_price)
+        pw, ph = pbbox[2] + 40, pbbox[3] + 24
+        draw.rounded_rectangle(
+            [(padding, content_y), (padding + pw, content_y + ph)],
+            radius=14, fill=(20, 160, 80, 235),
+        )
+        draw.text((padding + 20, content_y + 12), price_text, font=f_price, fill=(255, 255, 255, 255))
+        content_y += ph + 24
+
+    # --- Resumo (abaixo do separador e do badge de preço, se houver) ---
     f_summary = _get_font(46)
     summary_lines = _wrap_text(draw, summary, f_summary, max_w)[:6]
-    sum_y = sep_y + 30
+    sum_y = content_y
     for i, line in enumerate(summary_lines):
         draw.text((padding + 2, sum_y + i * 58 + 2), line, font=f_summary, fill=(0, 0, 0, 160))
         draw.text((padding, sum_y + i * 58), line, font=f_summary, fill=(230, 230, 230, 220))
@@ -341,6 +385,12 @@ async def generate_short_from_text(
     link: str | None = None,
     voice: str | None = None,
     display_text: str | None = None,
+    image_url: str | None = None,
+    price_text: str | None = None,
+    link_label: str | None = None,
+    extra_description: str | None = None,
+    keep_local: bool = False,
+    on_local_path: Callable[[str], None] | None = None,
 ) -> str | None:
     """
     Gera um Short vertical 1080×1920 a partir de TEXTO PRONTO (sem chamar Gemini).
@@ -361,6 +411,23 @@ async def generate_short_from_text(
         display_text: texto exibido sobre a imagem de fundo. Se None, usa o próprio
                        `narration`. Use para excluir intro/CTA do texto na tela quando
                        `narration` tiver esses trechos só para a fala.
+        image_url: URL de imagem direta (ex: foto de produto). Se fornecida, usa essa
+                   imagem em vez de buscar no Pexels. Cai no fluxo Pexels se o download falhar.
+        price_text: texto de preço/desconto exibido como badge na tela (ex: "R$ 49,90 → R$ 29,90 (-40%)").
+                    Se None, nenhum badge de preço é desenhado.
+        link_label: rótulo do bloco de link na descrição do YouTube. Se None, usa
+                    "📎 Leia a notícia completa:" (padrão de notícia). Pipelines de
+                    afiliado/produto devem passar algo como "🛒 Compre aqui (link de afiliado):".
+        extra_description: texto extra inserido no TOPO da descrição do YouTube, antes
+                            do link. Use para avisos obrigatórios (ex: divulgação de publicidade
+                            em conteúdo de afiliados, conforme guia CONAR).
+        keep_local: se True, NÃO apaga o arquivo de vídeo local após o upload. Use quando
+                    o mesmo arquivo renderizado será reaproveitado por outra plataforma
+                    (ex: publicar no TikTok logo depois, sem renderizar o vídeo de novo).
+        on_local_path: callback opcional chamado com o caminho do arquivo local assim que
+                       o vídeo termina de ser montado (antes do upload) — permite capturar
+                       o caminho pra reutilizar mesmo quando upload=True apaga o arquivo
+                       depois (a menos que keep_local=True).
 
     Retorna o video_id do YouTube ou None se falhar.
     Retorna None ANTES de gerar nada se narration estiver vazia.
@@ -405,15 +472,32 @@ async def generate_short_from_text(
     audio_clip = AudioFileClip(audio_path)
     duration = min(audio_clip.duration, 178.0)  # margem de 2s do limite (180s)
 
-    # 2. Imagem Pexels portrait
-    print("  [2/3] Buscando imagem Pexels...")
-    query = _build_pexels_query(title, category)
-    pil_img, _ = _search_pexels(query, orientation="portrait")
+    # 2. Imagem — direta (image_url) ou busca Pexels
+    pil_img = None
+    is_product_image = False
+    if image_url:
+        print("  [2/3] Baixando imagem do produto...")
+        try:
+            resp = requests.get(image_url, timeout=15)
+            resp.raise_for_status()
+            pil_img = Image.open(io.BytesIO(resp.content)).convert("RGB")
+            is_product_image = True
+        except Exception as e:
+            print(f"  Falha ao baixar image_url ({e}) — caindo pro Pexels.")
+            pil_img = None
+
     if pil_img is None:
-        pil_img, _ = _search_pexels(query, orientation="landscape")
+        print("  [2/3] Buscando imagem Pexels...")
+        query = _build_pexels_query(title, category)
+        pil_img, _ = _search_pexels(query, orientation="portrait")
+        if pil_img is None:
+            pil_img, _ = _search_pexels(query, orientation="landscape")
+
     if pil_img:
         portrait = _crop_portrait(pil_img)
-        bg_arr = _dark_overlay(portrait)
+        # Foto de produto usa overlay leve (preserva brilho) — fundo editorial
+        # do Pexels usa o escurecimento forte de sempre.
+        bg_arr = _light_overlay(portrait) if is_product_image else _dark_overlay(portrait)
     else:
         color = CATEGORY_COLORS.get(category, DEFAULT_COLOR)
         bg_solid = Image.new("RGB", (SHORTS_W, SHORTS_H), tuple(int(c * 0.25) for c in color))
@@ -421,7 +505,7 @@ async def generate_short_from_text(
 
     # 3. Render + monta vídeo
     print("  [3/3] Montando vídeo vertical...")
-    frame = _render_short_frame(bg_arr, title, summary, category, source)
+    frame = _render_short_frame(bg_arr, title, summary, category, source, price_text=price_text)
 
     video_clip = (
         ImageClip(frame)
@@ -449,6 +533,12 @@ async def generate_short_from_text(
 
     print(f"  Vídeo salvo: {output_path} ({duration:.1f}s)")
 
+    if on_local_path:
+        try:
+            on_local_path(output_path)
+        except Exception:
+            pass
+
     if not upload:
         return output_path
 
@@ -466,8 +556,11 @@ async def generate_short_from_text(
     yt_title = f"{title[:80]} #Shorts"
     link_bloco = ""
     if link:
-        link_bloco = f"📎 Leia a notícia completa:\n{link}\n\n"
+        label = link_label or "📎 Leia a notícia completa:"
+        link_bloco = f"{label}\n{link}\n\n"
+    extra_bloco = f"{extra_description}\n\n" if extra_description else ""
     yt_desc = (
+        f"{extra_bloco}"
         f"{link_bloco}"
         f"Fonte: {source}\n"
         f"📰 {CHANNEL_NAME}\n\n"
@@ -507,11 +600,12 @@ async def generate_short_from_text(
         except Exception as e:
             print(f"    Instagram Reel falhou: {e}")
 
-    # Cleanup
-    try:
-        os.remove(output_path)
-    except Exception:
-        pass
+    # Cleanup — pulado quando keep_local=True (arquivo será reaproveitado por outra plataforma)
+    if not keep_local:
+        try:
+            os.remove(output_path)
+        except Exception:
+            pass
 
     return video_id
 
