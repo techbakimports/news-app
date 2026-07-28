@@ -118,6 +118,19 @@ LOCALES = {
         "twitter_country": "india",
         "google_country":  "india",
         "youtube_region":  "IN",
+        # -- Celebridades (mesmo canal/token do país, playlist e voz separadas) --
+        "celebrity_category": "Celebrities",
+        "celebrity_voice": "en-IN-NeerjaExpressiveNeural",
+        "celebrity_playlist_key": "india_celebridades",
+        "celebrity_hashtags": ["Shorts", "Celebrities", "Gossip", "Entertainment"],
+        "celebrity_cta": (
+            " Liked this celebrity news? Leave a like, share it with a friend "
+            "who loves gossip, and subscribe to the channel for more celebrity updates."
+        ),
+        "celebrity_cta_grave": (
+            " Our thoughts are with the family and friends during this difficult "
+            "time. Subscribe to the channel to follow the latest news."
+        ),
     },
     "japao": {
         "label":       "Japão",
@@ -146,6 +159,20 @@ LOCALES = {
         "twitter_country": "japan",
         "google_country":  "japan",
         "youtube_region":  "JP",
+        # -- Celebridades (mesmo canal/token do país, playlist separada) --
+        # Sem voz alternativa mais "leve" disponível em ja-JP (só Nanami/Keita) — reaproveita a mesma.
+        "celebrity_category": "芸能",
+        "celebrity_voice": "ja-JP-NanamiNeural",
+        "celebrity_playlist_key": "japao_celebridades",
+        "celebrity_hashtags": ["Shorts", "芸能", "ゴシップ", "エンタメ"],
+        "celebrity_cta": (
+            " このニュースが気に入ったら、高評価とシェアをお願いします。そして、"
+            "芸能ニュースをもっと届けるこのチャンネルへの登録もよろしくお願いします。"
+        ),
+        "celebrity_cta_grave": (
+            " ご家族やご関係者の皆様に心よりお悔やみ申し上げます。"
+            "最新のニュースをフォローするには、チャンネル登録をお願いします。"
+        ),
     },
     "franca": {
         "label":       "França",
@@ -174,6 +201,20 @@ LOCALES = {
         "twitter_country": "france",
         "google_country":  "france",
         "youtube_region":  "FR",
+        # -- Celebridades (mesmo canal/token do país, playlist e voz separadas) --
+        "celebrity_category": "Célébrités",
+        "celebrity_voice": "fr-FR-EloiseNeural",
+        "celebrity_playlist_key": "franca_celebridades",
+        "celebrity_hashtags": ["Shorts", "Célébrités", "People", "Ragots"],
+        "celebrity_cta": (
+            " Cette actualité people vous a plu ? Laissez un like, partagez-la "
+            "avec une amie qui adore les ragots, et abonnez-vous à la chaîne "
+            "pour plus d'actualités people."
+        ),
+        "celebrity_cta_grave": (
+            " Nos pensées vont à la famille et aux proches en ce moment "
+            "difficile. Abonnez-vous à la chaîne pour suivre les prochaines actualités."
+        ),
     },
     "alemanha": {
         "label":       "Alemanha",
@@ -202,6 +243,20 @@ LOCALES = {
         "twitter_country": "germany",
         "google_country":  "germany",
         "youtube_region":  "DE",
+        # -- Celebridades (mesmo canal/token do país, playlist e voz separadas) --
+        "celebrity_category": "Prominente",
+        "celebrity_voice": "de-DE-AmalaNeural",
+        "celebrity_playlist_key": "alemanha_celebridades",
+        "celebrity_hashtags": ["Shorts", "Promis", "Klatsch", "Unterhaltung"],
+        "celebrity_cta": (
+            " Hat Ihnen diese Promi-News gefallen? Hinterlassen Sie ein Like, "
+            "teilen Sie sie mit einer Freundin, die Klatsch liebt, und abonnieren "
+            "Sie den Kanal für mehr Promi-News."
+        ),
+        "celebrity_cta_grave": (
+            " Unsere Gedanken sind bei der Familie und den Angehörigen in dieser "
+            "schwierigen Zeit. Abonnieren Sie den Kanal, um die nächsten Nachrichten zu verfolgen."
+        ),
     },
     "italia": {
         "label":       "Itália",
@@ -230,6 +285,19 @@ LOCALES = {
         "twitter_country": "italy",
         "google_country":  "italy",
         "youtube_region":  "IT",
+        # -- Celebridades (mesmo canal/token do país, playlist e voz separadas) --
+        "celebrity_category": "Celebrità",
+        "celebrity_voice": "it-IT-IsabellaNeural",
+        "celebrity_playlist_key": "italia_celebridades",
+        "celebrity_hashtags": ["Shorts", "Celebrità", "Gossip", "Intrattenimento"],
+        "celebrity_cta": (
+            " Ti è piaciuta questa notizia sui vip? Metti mi piace, condividila "
+            "con un'amica che ama il gossip, e iscriviti al canale per altre notizie sui vip."
+        ),
+        "celebrity_cta_grave": (
+            " I nostri pensieri vanno alla famiglia e ai cari in questo momento "
+            "difficile. Iscriviti al canale per seguire le prossime notizie."
+        ),
     },
 }
 

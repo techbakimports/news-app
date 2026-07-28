@@ -50,6 +50,11 @@ PIPELINES = [
     {"key": "franca",       "label": "França",       "icon": "🇫🇷"},
     {"key": "alemanha",     "label": "Alemanha",     "icon": "🇩🇪"},
     {"key": "italia",       "label": "Itália",       "icon": "🇮🇹"},
+    {"key": "india_celeb",    "label": "Índia Celebs",    "icon": "🇮🇳🌟"},
+    {"key": "japao_celeb",    "label": "Japão Celebs",    "icon": "🇯🇵🌟"},
+    {"key": "franca_celeb",   "label": "França Celebs",   "icon": "🇫🇷🌟"},
+    {"key": "alemanha_celeb", "label": "Alemanha Celebs", "icon": "🇩🇪🌟"},
+    {"key": "italia_celeb",   "label": "Itália Celebs",   "icon": "🇮🇹🌟"},
 ]
 
 SCRIPTS = {
@@ -64,6 +69,11 @@ SCRIPTS = {
     "franca":       "international_news.py",
     "alemanha":     "international_news.py",
     "italia":       "international_news.py",
+    "india_celeb":    "international_news.py",
+    "japao_celeb":    "international_news.py",
+    "franca_celeb":   "international_news.py",
+    "alemanha_celeb": "international_news.py",
+    "italia_celeb":   "international_news.py",
 }
 
 # Argumentos extras que o crontab já usa pra cada script (preservados ao
@@ -75,6 +85,11 @@ SCRIPT_ARGS = {
     "franca":   ["--locale", "franca"],
     "alemanha": ["--locale", "alemanha"],
     "italia":   ["--locale", "italia"],
+    "india_celeb":    ["--locale", "india", "--celebridades"],
+    "japao_celeb":    ["--locale", "japao", "--celebridades"],
+    "franca_celeb":   ["--locale", "franca", "--celebridades"],
+    "alemanha_celeb": ["--locale", "alemanha", "--celebridades"],
+    "italia_celeb":   ["--locale", "italia", "--celebridades"],
 }
 
 # Tag usada no comentário do crontab (# YOUTUBER:<tag>) → chave do pipeline no dashboard.
@@ -91,6 +106,11 @@ CRON_TAG_TO_KEY = {
     "franca":       "franca",
     "alemanha":     "alemanha",
     "italia":       "italia",
+    "india_celeb":    "india_celeb",
+    "japao_celeb":    "japao_celeb",
+    "franca_celeb":   "franca_celeb",
+    "alemanha_celeb": "alemanha_celeb",
+    "italia_celeb":   "italia_celeb",
 }
 KEY_TO_CRON_TAG = {v: k for k, v in CRON_TAG_TO_KEY.items()}
 
@@ -106,6 +126,11 @@ LOG_FILES = {
     "franca":       "logs/international_franca.log",
     "alemanha":     "logs/international_alemanha.log",
     "italia":       "logs/international_italia.log",
+    "india_celeb":    "logs/international_india_celeb.log",
+    "japao_celeb":    "logs/international_japao_celeb.log",
+    "franca_celeb":   "logs/international_franca_celeb.log",
+    "alemanha_celeb": "logs/international_alemanha_celeb.log",
+    "italia_celeb":   "logs/international_italia_celeb.log",
 }
 
 _ERROR_MARKERS = ("Traceback (most recent call last)", "❌", "ERRO FATAL", "Pipeline abortado")

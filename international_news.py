@@ -81,6 +81,7 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 
 YOUTUBE_UPLOAD      = True
 YOUTUBE_PUBLISH_NOW = True
+MAX_CELEBS_PER_RUN  = 3   # só usado em modo --celebridades
 
 _LANGUAGE_NAMES = {
     "en": "English",
@@ -269,13 +270,119 @@ def _generate_dense_narration(title: str, content: str, category_label: str, loc
     return None
 
 
+# -- Narração de celebridade com classificação grave/leve (Groq → Gemini) --------
+
+def _generate_celebrity_narration(
+    title: str, content: str, category_label: str, locale: dict
+) -> tuple[str, bool] | None:
+    """
+    Gera narração de celebridade (~110-125 palavras) NO IDIOMA do locale, com
+    classificação de tom grave/leve — mesmo critério do celebridades.py (BR):
+    evita soar como fofoca animada em cima de uma notícia de morte/tragédia.
+    Cadeia: Groq (primário) → Gemini (fallback) → None.
+
+    Retorna (narração, is_grave) ou None se nenhum LLM funcionar.
+    """
+    groq_key   = os.getenv("GROQ_API_KEY", "")
+    gemini_key = os.getenv("GEMINI_API_KEY", "")
+
+    lang_name = _LANGUAGE_NAMES.get(locale["language"], locale["language"])
+
+    if locale["language"] == "ja":
+        length_rule = "- Length: approximately 150-200 Japanese characters (not word count)."
+    else:
+        length_rule = "- Between 100 and 120 words."
+
+    prompt = (
+        "You are an entertainment show host recording a voiceover for a YouTube "
+        "Short about a celebrity news story.\n\n"
+        f"Headline: {title}\n"
+        f"Source content (use as factual basis):\n{content[:3000]}\n\n"
+        "MANDATORY RULES:\n\n"
+        "1. FIRST LINE of your reply: classify the story.\n"
+        "   Format: TONE: grave  OR  TONE: light\n"
+        "   - 'grave': death, serious illness, accident, grief, serious hospitalization, "
+        "tragedy, violence, mental health crisis, or any sad/serious fact.\n"
+        "   - 'light': dating, feud, look, fame, silly controversy, success, ordinary gossip.\n\n"
+        "2. THEN write the narration:\n"
+        f"- Write the ENTIRE narration in {lang_name}. Do not use any other language.\n"
+        "- Do NOT read the headline verbatim. Start directly with the most relevant fact.\n"
+        f"{length_rule}\n"
+        "- CONTEXT: the listener knows nothing — say who the person is, what happened, "
+        "and why it matters.\n"
+        "- COHERENCE: pick ONE throughline and follow it start to finish.\n"
+        "- IF TONE = light: upbeat, playful, like gossip between friends, but never defamatory. "
+        "Close with a light comment inviting the viewer to share their opinion in the comments.\n"
+        "- IF TONE = grave: respectful, sober, empathetic — like a journalist delivering sad "
+        "news. NO excitement, NO gossip-style language, NO exclamation marks. Close with a "
+        "respectful/sympathetic line, NOT a playful comment-invitation.\n"
+        "- Do NOT use markdown, asterisks, hashtags, symbols, or lists.\n"
+        "- Do NOT invent facts beyond the source content.\n"
+        "- Do NOT include a subscribe call-to-action — it will be added separately.\n\n"
+        f"Reply with only the TONE line followed by the narration in {lang_name}, "
+        "no title, no extra formatting."
+    )
+
+    def _parse(text: str) -> tuple[str, bool]:
+        lines = text.strip().splitlines()
+        is_grave = False
+        start = 0
+        if lines and lines[0].upper().startswith("TONE:"):
+            is_grave = "grave" in lines[0].lower()
+            start = 1
+            while start < len(lines) and not lines[start].strip():
+                start += 1
+        narration = "\n".join(lines[start:]).strip()
+        return narration, is_grave
+
+    if groq_key and groq_key not in ("", "cole_sua_chave_aqui"):
+        try:
+            from groq import Groq
+            client = Groq(api_key=groq_key)
+            resp = client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.8,
+            )
+            text = resp.choices[0].message.content.strip()
+            if text:
+                narration, is_grave = _parse(text)
+                print(f"  [Groq] narração de celebridade gerada ({lang_name}, tom={'grave' if is_grave else 'light'})")
+                return narration, is_grave
+        except Exception as e:
+            print(f"  Groq falhou: {e}. Tentando Gemini...")
+
+    if gemini_key and gemini_key not in ("", "cole_sua_chave_aqui"):
+        try:
+            from google import genai as google_genai
+            client = google_genai.Client(api_key=gemini_key)
+            response = client.models.generate_content(model="gemini-2.0-flash", contents=prompt)
+            text = response.text.strip()
+            if text:
+                narration, is_grave = _parse(text)
+                print(f"  [Gemini] narração de celebridade gerada ({lang_name}, tom={'grave' if is_grave else 'light'})")
+                return narration, is_grave
+        except Exception as e:
+            print(f"  Gemini também falhou: {e}")
+
+    print("  ❌ Nenhum LLM disponível para gerar narração de celebridade internacional.")
+    return None
+
+
 # -- Pipeline principal --------------------------------------------------------------
 
-async def run_international(locale_key: str, on_progress=None) -> list[tuple[str, str | None]]:
+async def run_international(
+    locale_key: str, on_progress=None, celebridades: bool = False
+) -> list[tuple[str, str | None]]:
     """
     Pipeline de Notícias Internacionais pra um locale — mesmo fluxo do main.py:
     1 Short por categoria (Política/Entretenimento/Mercado Financeiro/Policial,
     traduzidas), com seleção por relevância usando trending topics do próprio país.
+
+    celebridades=True muda pro modo Celebridades (espelha celebridades.py): uma
+    única categoria de fofoca/entretenimento, até MAX_CELEBS_PER_RUN Shorts por
+    execução (não 1), narração com classificação de tom grave/leve, playlist e
+    voz próprias — mas o MESMO canal/token do país (não precisa canal novo).
 
     Retorna lista de (categoria_universal, video_id | None).
     """
@@ -285,7 +392,15 @@ async def run_international(locale_key: str, on_progress=None) -> list[tuple[str
     from trends import get_trending_topics
 
     locale = LOCALES[locale_key]
-    categories = locale["categories"]  # {"Política": "Politics", ...}
+
+    if celebridades:
+        categories = {"Celebridades": locale["celebrity_category"]}
+        fetch_limit = 15
+        mode_label = f"{locale['label']} — Celebridades"
+    else:
+        categories = locale["categories"]  # {"Política": "Politics", ...}
+        fetch_limit = 5
+        mode_label = locale["label"]
 
     pipeline_start = time.time()
 
@@ -293,17 +408,17 @@ async def run_international(locale_key: str, on_progress=None) -> list[tuple[str
         m, s = divmod(int(time.time() - pipeline_start), 60)
         return f"[T+{m:02d}:{s:02d}]"
 
-    print(f"--- International News ({locale['label']}): {datetime.now().strftime('%d/%m/%Y %H:%M:%S')} ---")
+    print(f"--- International News ({mode_label}): {datetime.now().strftime('%d/%m/%Y %H:%M:%S')} ---")
     print(f"Categorias: {', '.join(categories.values())}")
 
     privacy = "public" if YOUTUBE_PUBLISH_NOW else "private"
 
     # ---------- Fase 1: Fetch por categoria ----------
-    print(f"\n{_elapsed()} [FASE 1] Buscando notícias das categorias selecionadas ({locale['label']})...")
+    print(f"\n{_elapsed()} [FASE 1] Buscando notícias das categorias selecionadas ({mode_label})...")
     phase_start = time.time()
     raw_news = []
     for cat_universal, cat_local in categories.items():
-        items = fetch_query_by_locale(cat_local, locale["hl"], locale["gl"], locale["ceid"], limit=5)
+        items = fetch_query_by_locale(cat_local, locale["hl"], locale["gl"], locale["ceid"], limit=fetch_limit)
         for item in items:
             item["category"] = cat_universal  # normaliza pra chave universal (dedup/agrupamento)
         raw_news.extend(items)
@@ -313,13 +428,13 @@ async def run_international(locale_key: str, on_progress=None) -> list[tuple[str
         print("Nenhuma notícia encontrada. Abortando.")
         try:
             from telegram_notifier import notify
-            notify(f"❌ <b>International News ({locale['label']}):</b> nenhuma notícia encontrada.")
+            notify(f"❌ <b>International News ({mode_label}):</b> nenhuma notícia encontrada.")
         except Exception:
             pass
         return []
 
     # ---------- Fase 1.5: Trending topics do país ----------
-    print(f"\n{_elapsed()} [FASE 1.5] Coletando trending topics ({locale['label']})...")
+    print(f"\n{_elapsed()} [FASE 1.5] Coletando trending topics ({mode_label})...")
     trending = None
     try:
         trending = get_trending_topics(
@@ -354,23 +469,36 @@ async def run_international(locale_key: str, on_progress=None) -> list[tuple[str
             pool_por_categoria.setdefault(cat, []).append(item)
 
     items_selecionados = []
-    for cat_universal in categories:
-        candidatos = pool_por_categoria.get(cat_universal, [])
-        if not candidatos:
-            print(f"  ⚠️  Sem candidatos para '{categories[cat_universal]}'")
-            continue
-        cat_local = categories[cat_universal]
-        print(f"\n  → '{cat_local}': {len(candidatos)} candidatos — selecionando mais relevante...")
-        escolhido = _select_most_relevant_intl(cat_local, candidatos, trending)
-        items_selecionados.append(escolhido)
-
-    print(f"\n{_elapsed()} [FASE 2] {len(items_selecionados)}/{len(categories)} categorias com notícia selecionada")
+    if celebridades:
+        # Uma única categoria, mas até MAX_CELEBS_PER_RUN itens — seleção
+        # sequencial (escolhe a mais relevante, remove do pool, repete).
+        cat_local = categories["Celebridades"]
+        remaining = list(pool_por_categoria.get("Celebridades", []))
+        print(f"\n  → '{cat_local}': {len(remaining)} candidatos — selecionando até {MAX_CELEBS_PER_RUN} mais relevantes...")
+        for _ in range(min(MAX_CELEBS_PER_RUN, len(remaining))):
+            if not remaining:
+                break
+            escolhido = _select_most_relevant_intl(cat_local, remaining, trending)
+            items_selecionados.append(escolhido)
+            remaining = [c for c in remaining if c["link"] != escolhido["link"]]
+        print(f"\n{_elapsed()} [FASE 2] {len(items_selecionados)} notícia(s) de celebridade selecionada(s)")
+    else:
+        for cat_universal in categories:
+            candidatos = pool_por_categoria.get(cat_universal, [])
+            if not candidatos:
+                print(f"  ⚠️  Sem candidatos para '{categories[cat_universal]}'")
+                continue
+            cat_local = categories[cat_universal]
+            print(f"\n  → '{cat_local}': {len(candidatos)} candidatos — selecionando mais relevante...")
+            escolhido = _select_most_relevant_intl(cat_local, candidatos, trending)
+            items_selecionados.append(escolhido)
+        print(f"\n{_elapsed()} [FASE 2] {len(items_selecionados)}/{len(categories)} categorias com notícia selecionada")
 
     if not items_selecionados:
         print("Nenhuma categoria teve notícia válida. Abortando.")
         try:
             from telegram_notifier import notify
-            notify(f"❌ <b>International News ({locale['label']}):</b> nenhuma categoria teve notícia válida.")
+            notify(f"❌ <b>International News ({mode_label}):</b> nenhuma categoria teve notícia válida.")
         except Exception:
             pass
         return []
@@ -388,17 +516,27 @@ async def run_international(locale_key: str, on_progress=None) -> list[tuple[str
         cat_universal = item["category"]
         cat_local = categories[cat_universal]
         print(f"\n  → {cat_local}: resumindo...")
-        narracao = _generate_dense_narration(item["title"], item["_content"], cat_local, locale)
-        if narracao:
-            item["narracao"] = narracao
-            items_com_narracao.append(item)
+        if celebridades:
+            result = _generate_celebrity_narration(item["title"], item["_content"], cat_local, locale)
+            if result:
+                narracao, is_grave = result
+                item["narracao"] = narracao
+                item["is_grave"] = is_grave
+                items_com_narracao.append(item)
+            else:
+                print(f"  ⚠️ {cat_local}: sem narração (LLMs falharam) — pulando")
         else:
-            print(f"  ⚠️ {cat_local}: sem narração (LLMs falharam) — pulando")
+            narracao = _generate_dense_narration(item["title"], item["_content"], cat_local, locale)
+            if narracao:
+                item["narracao"] = narracao
+                items_com_narracao.append(item)
+            else:
+                print(f"  ⚠️ {cat_local}: sem narração (LLMs falharam) — pulando")
 
     print(f"\n{_elapsed()} [FASE 3] OK em {int(time.time()-phase_start)}s — {len(items_com_narracao)} narrações geradas")
 
     if not items_com_narracao:
-        msg = f"❌ <b>International News ({locale['label']}):</b> pipeline abortado — nenhuma narração válida."
+        msg = f"❌ <b>International News ({mode_label}):</b> pipeline abortado — nenhuma narração válida."
         print(msg)
         try:
             from telegram_notifier import notify
@@ -411,9 +549,10 @@ async def run_international(locale_key: str, on_progress=None) -> list[tuple[str
     os.makedirs(DRIVE_SYNC_DIR, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M")
     date_str = datetime.now().strftime("%d/%m/%Y")
-    md_path = os.path.join(DRIVE_SYNC_DIR, f"International_{locale_key}_{timestamp}.md")
+    file_suffix = f"{locale_key}_celeb" if celebridades else locale_key
+    md_path = os.path.join(DRIVE_SYNC_DIR, f"International_{file_suffix}_{timestamp}.md")
     with open(md_path, "w", encoding="utf-8") as f:
-        f.write(f"# International News ({locale['label']}) — {date_str}\n\n")
+        f.write(f"# International News ({mode_label}) — {date_str}\n\n")
         for i, item in enumerate(items_com_narracao, 1):
             cat_local = categories[item["category"]]
             f.write(f"## {i}. [{cat_local}] {item['title']}\n\n")
@@ -433,22 +572,33 @@ async def run_international(locale_key: str, on_progress=None) -> list[tuple[str
         cat_local = categories[cat_universal]
         print(f"\n  ── Short {i}/{len(items_com_narracao)} — {cat_local} ({locale['label']}) ──")
 
-        narracao_final = locale["intro"] + " " + item["narracao"].rstrip() + locale["cta"]
-        cat_hashtags = list(locale["hashtags"]) + [cat_local.replace(" ", "")]
+        if celebridades:
+            cta = locale["celebrity_cta_grave"] if item.get("is_grave") else locale["celebrity_cta"]
+            narracao_final = item["narracao"].rstrip() + cta  # sem "intro" — celebridades.py também não usa
+            voice = locale["celebrity_voice"]
+            playlist_key = locale["celebrity_playlist_key"]
+            cat_hashtags = list(locale["celebrity_hashtags"])
+            category_key = "Celebridades"  # cor/voz-fallback consistentes com o BR (rosa)
+        else:
+            narracao_final = locale["intro"] + " " + item["narracao"].rstrip() + locale["cta"]
+            voice = locale["voice"]
+            playlist_key = locale["playlist_key"]
+            cat_hashtags = list(locale["hashtags"]) + [cat_local.replace(" ", "")]
+            category_key = cat_universal
 
         common_kwargs = dict(
             title=item["title"],
             narration=narracao_final,
-            category=cat_universal,          # chave universal → cor/voz corretas (mesma paleta do BR)
+            category=category_key,           # chave universal → cor/voz corretas (mesma paleta do BR)
             category_label=cat_local,        # texto exibido na tela/tags no idioma local
             source=item.get("source", ""),
             hashtags=cat_hashtags,
-            playlist_key=locale["playlist_key"],
+            playlist_key=playlist_key,
             instagram_enabled=False,
             youtube_enabled=True,
             link=item.get("link"),
             display_text=item["narracao"],
-            voice=locale["voice"],
+            voice=voice,
             language=locale["language"],
             token_file=locale["token_file"],
             link_label=locale["link_label"],
@@ -469,7 +619,8 @@ async def run_international(locale_key: str, on_progress=None) -> list[tuple[str
         try:
             video_id = await generate_short_from_text(**common_kwargs, upload=True, privacy=privacy)
             if video_id:
-                mark_as_posted(item["title"], pipeline=f"international_{locale_key}")
+                pipeline_name = f"international_{locale_key}_celeb" if celebridades else f"international_{locale_key}"
+                mark_as_posted(item["title"], pipeline=pipeline_name)
             resultados.append((cat_universal, video_id))
         except Exception as e:
             print(f"  ❌ Erro no Short {i} ({cat_local}): {e}")
@@ -484,7 +635,7 @@ async def run_international(locale_key: str, on_progress=None) -> list[tuple[str
 
     # ---------- Resumo final + notificação ----------
     total_min, total_sec = divmod(int(time.time() - pipeline_start), 60)
-    print(f"\n{_elapsed()} === PIPELINE CONCLUÍDO ({locale['label']}) === ({total_min}m{total_sec:02d}s totais)")
+    print(f"\n{_elapsed()} === PIPELINE CONCLUÍDO ({mode_label}) === ({total_min}m{total_sec:02d}s totais)")
 
     yt_ok = sum(1 for _, vid in resultados if vid)
     print(f"  YouTube: ✅ {yt_ok}/{len(resultados)}")
@@ -492,7 +643,7 @@ async def run_international(locale_key: str, on_progress=None) -> list[tuple[str
     if YOUTUBE_UPLOAD:
         try:
             from telegram_notifier import notify
-            linhas = [f"✅ <b>International News ({locale['label']}) postado!</b> ({total_min}m{total_sec:02d}s)"]
+            linhas = [f"✅ <b>International News ({mode_label}) postado!</b> ({total_min}m{total_sec:02d}s)"]
             linhas.append(f"📺 YouTube: {yt_ok}/{len(resultados)}")
             linhas.append("")
             for cat_universal, vid in resultados:
@@ -514,11 +665,13 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(prog="international_news.py", add_help=True)
     parser.add_argument("--locale", required=True, choices=list(LOCALES.keys()), help="país/locale a rodar")
+    parser.add_argument("--celebridades", action="store_true", help="modo Celebridades em vez das 4 categorias de notícia")
     parser.add_argument("--sem-upload", action="store_true", help="só gera, sem upload")
     parser.add_argument("--privado",    action="store_true", help="publica como privado")
     args, _ = parser.parse_known_args()
 
-    _init_logging(args.locale)
+    log_suffix = f"{args.locale}_celeb" if args.celebridades else args.locale
+    _init_logging(log_suffix)
 
     if args.sem_upload:
         YOUTUBE_UPLOAD = False
@@ -533,4 +686,4 @@ if __name__ == "__main__":
             print(f"❌ Token YouTube inválido ({args.locale}): {msg}")
             sys.exit(1)
 
-    asyncio.run(run_international(args.locale))
+    asyncio.run(run_international(args.locale, celebridades=args.celebridades))

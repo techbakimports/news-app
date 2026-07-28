@@ -68,6 +68,36 @@ PLAYLIST_DEFS = {
         "keywords": ["notizie italia", "news del giorno"],
         "language": "it",
     },
+    "india_celebridades": {
+        "title": "India Celebrity News 🌟",
+        "description": "Celebrity gossip and entertainment news from India, generated with AI.",
+        "keywords": ["celebrity news india", "bollywood gossip"],
+        "language": "en",
+    },
+    "japao_celebridades": {
+        "title": "芸能ニュース 🌟",
+        "description": "AIが生成する芸能人・有名人のニュースを毎日配信。",
+        "keywords": ["芸能ニュース", "有名人ゴシップ"],
+        "language": "ja",
+    },
+    "franca_celebridades": {
+        "title": "Actualités Célébrités France 🌟",
+        "description": "Actualités et ragots people français, générés par IA.",
+        "keywords": ["actualités people", "ragots célébrités"],
+        "language": "fr",
+    },
+    "alemanha_celebridades": {
+        "title": "Promi-News Deutschland 🌟",
+        "description": "Promi-Klatsch und Unterhaltungsnews aus Deutschland, per KI erstellt.",
+        "keywords": ["promi news", "promi klatsch"],
+        "language": "de",
+    },
+    "italia_celebridades": {
+        "title": "Notizie Vip Italia 🌟",
+        "description": "Gossip e notizie sui vip italiani, generate con l'IA.",
+        "keywords": ["notizie vip", "gossip italia"],
+        "language": "it",
+    },
     "rain": {
         "title": "Chuva para Dormir e Relaxar 🌧️",
         "description": "Horas de sons de chuva para dormir, estudar e relaxar.",
