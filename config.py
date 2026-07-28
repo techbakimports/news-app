@@ -84,6 +84,13 @@ CATEGORY_VOICES = {
 # Cada país publica num canal do YouTube próprio (token.json separado) —
 # ver credentials/token_<locale>.json, criado pelo usuário via OAuth.
 # Nomes de voz Edge TTS confirmados via `python -m edge_tts --list-voices`.
+#
+# Mesmo fluxo e mesmas 4 categorias do pipeline de Notícias BR (main.py):
+# Política, Entretenimento, Mercado Financeiro, Policial — traduzidas por país.
+# "categories" mapeia a chave universal pro termo de busca no idioma local.
+#
+# twitter_country/google_country: slugs do trends24.in / pytrends.
+# youtube_region: regionCode da YouTube Data API (ISO 3166-1 alpha-2).
 LOCALES = {
     "india": {
         "label":       "Índia",
@@ -92,10 +99,25 @@ LOCALES = {
         "language":    "en",
         "token_file":  "credentials/token_india.json",
         "playlist_key": "india",
+        "channel_name": "NewsApp India",
         "badge_label": "NEWS",
         "link_label":  "📎 Read the full story:",
         "source_label": "Source:",
         "hashtags":    ["Shorts", "IndiaNews", "News", "India"],
+        "categories": {
+            "Política":            "Politics",
+            "Entretenimento":      "Entertainment",
+            "Mercado Financeiro":  "Business",
+            "Policial":            "Crime",
+        },
+        "intro": "NewsApp here, your news in one minute.",
+        "cta": (
+            " Liked this news? Leave a like, share it with someone who needs "
+            "to know, and subscribe to the channel to get your daily news in Short format."
+        ),
+        "twitter_country": "india",
+        "google_country":  "india",
+        "youtube_region":  "IN",
     },
     "japao": {
         "label":       "Japão",
@@ -104,11 +126,26 @@ LOCALES = {
         "language":    "ja",
         "token_file":  "credentials/token_japao.json",
         "playlist_key": "japao",
+        "channel_name": "NewsApp Japan",
         "badge_label": "ニュース",
         "cjk_font":    True,
         "link_label":  "📎 詳しい記事はこちら:",
         "source_label": "情報源:",
         "hashtags":    ["Shorts", "News", "Japan", "ニュース"],
+        "categories": {
+            "Política":            "政治",
+            "Entretenimento":      "エンタメ",
+            "Mercado Financeiro":  "経済",
+            "Policial":            "事件",
+        },
+        "intro": "NewsAppです。1分でニュースをお届けします。",
+        "cta": (
+            " 気に入ったら高評価とシェアをお願いします。そして、毎日のニュースを"
+            "ショート動画でお届けするこのチャンネルへの登録もよろしくお願いします。"
+        ),
+        "twitter_country": "japan",
+        "google_country":  "japan",
+        "youtube_region":  "JP",
     },
     "franca": {
         "label":       "França",
@@ -117,10 +154,26 @@ LOCALES = {
         "language":    "fr",
         "token_file":  "credentials/token_franca.json",
         "playlist_key": "franca",
+        "channel_name": "NewsApp France",
         "badge_label": "ACTUALITÉS",
         "link_label":  "📎 Lire l'article complet:",
         "source_label": "Source:",
         "hashtags":    ["Shorts", "ActualitesFrance", "News", "France"],
+        "categories": {
+            "Política":            "Politique",
+            "Entretenimento":      "Divertissement",
+            "Mercado Financeiro":  "Économie",
+            "Policial":            "Faits divers",
+        },
+        "intro": "NewsApp ici, votre actualité en une minute.",
+        "cta": (
+            " Cette actualité vous a plu ? Laissez un like, partagez-la avec "
+            "quelqu'un qui doit le savoir, et abonnez-vous à la chaîne pour "
+            "recevoir l'actualité du jour en format Short."
+        ),
+        "twitter_country": "france",
+        "google_country":  "france",
+        "youtube_region":  "FR",
     },
     "alemanha": {
         "label":       "Alemanha",
@@ -129,10 +182,26 @@ LOCALES = {
         "language":    "de",
         "token_file":  "credentials/token_alemanha.json",
         "playlist_key": "alemanha",
+        "channel_name": "NewsApp Deutschland",
         "badge_label": "NACHRICHTEN",
         "link_label":  "📎 Ganzen Artikel lesen:",
         "source_label": "Quelle:",
         "hashtags":    ["Shorts", "NachrichtenDeutschland", "News", "Deutschland"],
+        "categories": {
+            "Política":            "Politik",
+            "Entretenimento":      "Unterhaltung",
+            "Mercado Financeiro":  "Wirtschaft",
+            "Policial":            "Kriminalität",
+        },
+        "intro": "NewsApp hier, Ihre Nachrichten in einer Minute.",
+        "cta": (
+            " Hat Ihnen diese Nachricht gefallen? Hinterlassen Sie ein Like, "
+            "teilen Sie sie mit jemandem, der es wissen muss, und abonnieren "
+            "Sie den Kanal, um die täglichen Nachrichten im Short-Format zu erhalten."
+        ),
+        "twitter_country": "germany",
+        "google_country":  "germany",
+        "youtube_region":  "DE",
     },
     "italia": {
         "label":       "Itália",
@@ -141,10 +210,26 @@ LOCALES = {
         "language":    "it",
         "token_file":  "credentials/token_italia.json",
         "playlist_key": "italia",
+        "channel_name": "NewsApp Italia",
         "badge_label": "NOTIZIE",
         "link_label":  "📎 Leggi l'articolo completo:",
         "source_label": "Fonte:",
         "hashtags":    ["Shorts", "NotizieItalia", "News", "Italia"],
+        "categories": {
+            "Política":            "Politica",
+            "Entretenimento":      "Intrattenimento",
+            "Mercado Financeiro":  "Economia",
+            "Policial":            "Cronaca",
+        },
+        "intro": "NewsApp qui, le tue notizie in un minuto.",
+        "cta": (
+            " Ti è piaciuta questa notizia? Metti mi piace, condividila con "
+            "chi ha bisogno di saperlo, e iscriviti al canale per ricevere "
+            "le notizie del giorno in formato Short."
+        ),
+        "twitter_country": "italy",
+        "google_country":  "italy",
+        "youtube_region":  "IT",
     },
 }
 

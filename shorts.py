@@ -274,12 +274,18 @@ def _render_short_frame(
     source: str,
     price_text: str | None = None,
     cjk_font: bool = False,
+    channel_name: str | None = None,
+    category_label: str | None = None,
 ) -> np.ndarray:
     """Renderiza frame vertical com título, resumo e elementos de UI.
 
     cjk_font: use fonte com suporte a japonês/chinês/coreano (necessário pro
               pipeline internacional em japonês — senão os glifos viram
               caixinhas vazias mesmo com a fonte CJK instalada no sistema).
+
+    channel_name: nome exibido no canto superior direito. Se None, usa o
+                  CHANNEL_NAME global (canal principal). Pipelines de outros
+                  países/canais devem passar o nome do canal correspondente.
 
     price_text: se fornecido, desenha um badge de preço/desconto logo após o
     separador colorido, antes do bloco de resumo (ex: vídeos de produto/afiliado).
@@ -296,7 +302,7 @@ def _render_short_frame(
 
     # --- Badge de categoria (topo) ---
     f_badge = _get_font(44, bold=True, cjk=cjk_font)
-    badge_text = f" {category.upper()} "
+    badge_text = f" {(category_label or category).upper()} "
     bbox = draw.textbbox((0, 0), badge_text, font=f_badge)
     bw, bh = bbox[2] + 32, bbox[3] + 20
     badge_y = 90
@@ -307,10 +313,11 @@ def _render_short_frame(
     draw.text((padding + 16, badge_y + 10), badge_text.strip(), font=f_badge, fill=(255, 255, 255, 255))
 
     # --- Nome do canal (topo direito) ---
+    ch_name = channel_name or CHANNEL_NAME
     f_channel = _get_font(36, cjk=cjk_font)
-    ch_bbox = draw.textbbox((0, 0), CHANNEL_NAME, font=f_channel)
+    ch_bbox = draw.textbbox((0, 0), ch_name, font=f_channel)
     cx = SHORTS_W - ch_bbox[2] - padding
-    draw.text((cx, badge_y + 12), CHANNEL_NAME, font=f_channel, fill=(220, 220, 220, 180))
+    draw.text((cx, badge_y + 12), ch_name, font=f_channel, fill=(220, 220, 220, 180))
 
     # --- Data (abaixo do badge) ---
     f_date = _get_font(32, cjk=cjk_font)
@@ -400,6 +407,8 @@ async def generate_short_from_text(
     token_file: str | None = None,
     source_label: str | None = None,
     cjk_font: bool = False,
+    channel_name: str | None = None,
+    category_label: str | None = None,
 ) -> str | None:
     """
     Gera um Short vertical 1080×1920 a partir de TEXTO PRONTO (sem chamar Gemini).
@@ -445,6 +454,13 @@ async def generate_short_from_text(
                       Pipelines em outro idioma devem passar a tradução (ex: "Source:").
         cjk_font: True usa fonte com suporte a japonês/chinês/coreano na renderização
                   do texto na tela. Necessário pro pipeline internacional em japonês.
+        channel_name: nome do canal exibido na tela e na descrição do YouTube. Se
+                      None, usa CHANNEL_NAME (config.py, canal principal). Pipelines
+                      de outros países/canais devem passar o nome daquele canal.
+        category_label: texto exibido no badge da tela e usado nas tags do YouTube.
+                        Se None, usa o próprio `category`. Use pra mostrar a categoria
+                        traduzida (ex: category="Política" pra cor/voz corretas,
+                        category_label="政治" pro que aparece na tela/tags).
 
     Retorna o video_id do YouTube ou None se falhar.
     Retorna None ANTES de gerar nada se narration estiver vazia.
@@ -522,7 +538,8 @@ async def generate_short_from_text(
 
     # 3. Render + monta vídeo
     print("  [3/3] Montando vídeo vertical...")
-    frame = _render_short_frame(bg_arr, title, summary, category, source, price_text=price_text, cjk_font=cjk_font)
+    frame = _render_short_frame(bg_arr, title, summary, category, source, price_text=price_text,
+                                 cjk_font=cjk_font, channel_name=channel_name, category_label=category_label)
 
     video_clip = (
         ImageClip(frame)
@@ -566,7 +583,8 @@ async def generate_short_from_text(
     if hashtags is None:
         hashtags = ["Shorts", "Notícias", "Brasil"]
 
-    context_tags = _generate_tags(title, category, summary)
+    cat_display = category_label or category
+    context_tags = _generate_tags(title, cat_display, summary)
     all_tags = list(dict.fromkeys(hashtags + context_tags))
     hash_line = " ".join(f"#{t}" for t in all_tags)
 
@@ -577,14 +595,15 @@ async def generate_short_from_text(
         link_bloco = f"{label}\n{link}\n\n"
     extra_bloco = f"{extra_description}\n\n" if extra_description else ""
     src_label = source_label or "Fonte:"
+    ch_name = channel_name or CHANNEL_NAME
     yt_desc = (
         f"{extra_bloco}"
         f"{link_bloco}"
         f"{src_label} {source}\n"
-        f"📰 {CHANNEL_NAME}\n\n"
+        f"📰 {ch_name}\n\n"
         f"{hash_line}"
     )
-    yt_tags = [t.lower() for t in all_tags] + [category.lower()]
+    yt_tags = [t.lower() for t in all_tags] + [cat_display.lower()]
 
     video_id = None
 

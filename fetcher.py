@@ -364,6 +364,46 @@ def fetch_topheadlines_by_locale(hl: str, gl: str, ceid: str, limit: int = 10) -
     return all_news
 
 
+def fetch_query_by_locale(query: str, hl: str, gl: str, ceid: str, limit: int = 5) -> list[dict]:
+    """
+    Busca notícias por query livre na edição do Google News de um locale
+    específico. Versão parametrizada de fetch_by_custom_queries() (que é
+    fixa em pt-BR) — usada pelo pipeline internacional pra buscar por
+    categoria (ex: "Politics", "Business") em cada país.
+    """
+    url = (
+        f"https://news.google.com/rss/search?q={urllib.parse.quote(query)}"
+        f"&hl={hl}&gl={gl}&ceid={ceid}"
+    )
+
+    all_news = []
+    seen: set[str] = set()
+    try:
+        feed = feedparser.parse(url)
+        for entry in feed.entries:
+            if len(all_news) >= limit:
+                break
+            title = getattr(entry, "title", "").strip()
+            link  = getattr(entry, "link", "").strip()
+            if not title or link in seen:
+                continue
+            seen.add(link)
+            real_link = _resolve_google_news_url(link) if "news.google.com" in link else link
+            all_news.append({
+                "category": query,
+                "source":   getattr(entry, "source", {}).get("title", "Google News"),
+                "titulo":   title,
+                "title":    title,
+                "link":     real_link,
+                "published": getattr(entry, "published", ""),
+                "summary":  getattr(entry, "summary", ""),
+            })
+    except Exception as e:
+        print(f"  [fetcher] fetch_query_by_locale falhou ('{query}', {hl}/{gl}): {e}")
+
+    return all_news
+
+
 def extract_article_content(url):
     """
     Tenta extrair o texto principal de uma notícia via URL.
