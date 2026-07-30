@@ -54,7 +54,7 @@ def _init_logging(locale: str) -> None:
         format="%(asctime)s %(message)s",
         datefmt="%H:%M:%S",
         handlers=[
-            RotatingFileHandler(log_file, maxBytes=5*1024*1024, backupCount=0, encoding="utf-8"),
+            RotatingFileHandler(log_file, maxBytes=5*1024*1024, backupCount=2, encoding="utf-8"),
             logging.StreamHandler(),
         ],
         force=True,
