@@ -406,6 +406,11 @@ if __name__ == "__main__":
         ok, msg = check_youtube_token()
         if not ok:
             print(f"❌ Token YouTube inválido: {msg}")
+            try:
+                from telegram_notifier import notify
+                notify(f"⚠️ <b>Curiosidades:</b> token do YouTube expirado/inválido — pipeline abortado.\n{msg}")
+            except Exception:
+                pass
             sys.exit(1)
 
     asyncio.run(run_curiosidade())

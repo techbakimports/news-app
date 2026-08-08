@@ -524,6 +524,11 @@ async def _main():
         ok, msg = check_youtube_token()
         if not ok:
             print(f"❌ Token YouTube inválido: {msg}")
+            try:
+                from telegram_notifier import notify
+                notify(f"⚠️ <b>Novela IA:</b> token do YouTube expirado/inválido — pipeline abortado.\n{msg}")
+            except Exception:
+                pass
             sys.exit(1)
 
     print(f"\n=== NOVELA IA — {TITULO_SERIE} ===")
