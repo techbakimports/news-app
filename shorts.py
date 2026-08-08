@@ -7,6 +7,7 @@ import argparse
 import asyncio
 import io
 import os
+import re
 import shutil
 import sys
 import numpy as np
@@ -208,20 +209,31 @@ def _crop_portrait(image: Image.Image) -> Image.Image:
 
 
 def _dark_overlay(image: Image.Image) -> np.ndarray:
-    """Aplica escurecimento + gradiente para legibilidade do texto."""
-    arr = np.array(image).astype(float) * 0.35
+    """
+    Escurecimento concentrado nas zonas de texto (topo/base) em vez de uniforme
+    na imagem inteira — a foto de fundo fica bem mais visível, o que aumenta o
+    impacto visual da capa/thumbnail (o Short inteiro é um frame estático, então
+    esse frame É a miniatura que aparece no feed do YouTube).
+    """
+    arr = np.array(image).astype(float) * 0.55  # antes 0.35 — foto mais visível
     base = Image.fromarray(arr.astype(np.uint8)).convert("RGBA")
 
     grad = Image.new("RGBA", (SHORTS_W, SHORTS_H), (0, 0, 0, 0))
     draw = ImageDraw.Draw(grad)
-    # Gradiente superior (top 35%)
-    for y in range(int(SHORTS_H * 0.35)):
-        alpha = int(180 * (1 - y / (SHORTS_H * 0.35)))
+    # Topo — faixa curta, só o suficiente pro badge/canal
+    for y in range(int(SHORTS_H * 0.20)):
+        alpha = int(130 * (1 - y / (SHORTS_H * 0.20)))
         draw.line([(0, y), (SHORTS_W, y)], fill=(0, 0, 0, alpha))
-    # Gradiente inferior (bottom 50%)
-    start = int(SHORTS_H * 0.50)
+    # Zona do título — leve, mais forte nas bordas da faixa do que no centro
+    mid_start, mid_end = int(SHORTS_H * 0.28), int(SHORTS_H * 0.56)
+    for y in range(mid_start, mid_end):
+        t = (y - mid_start) / (mid_end - mid_start)
+        alpha = int(70 + 60 * abs(0.5 - t) * 2)
+        draw.line([(0, y), (SHORTS_W, y)], fill=(0, 0, 0, alpha))
+    # Base — zona do gancho/rodapé, mais forte, mas área menor que antes (32% vs 50%)
+    start = int(SHORTS_H * 0.68)
     for y in range(start, SHORTS_H):
-        alpha = int(220 * (y - start) / (SHORTS_H - start))
+        alpha = int(200 * (y - start) / (SHORTS_H - start))
         draw.line([(0, y), (SHORTS_W, y)], fill=(0, 0, 0, alpha))
 
     return np.array(Image.alpha_composite(base, grad).convert("RGB"))
@@ -266,6 +278,65 @@ def _wrap_text(draw, text, font, max_width):
     return lines
 
 
+def _wrap_hook_lines(draw, text: str, font, max_width: int, max_lines: int = 2) -> list[str]:
+    """
+    Quebra o gancho em até max_lines linhas. Se sobrar texto além disso, trunca
+    a última linha com "…" em vez de simplesmente cortar a frase no meio sem
+    aviso (o que podia esconder justamente o dado mais forte, ex: a porcentagem).
+    """
+    all_lines = _wrap_text(draw, text, font, max_width)
+    if len(all_lines) <= max_lines:
+        return all_lines
+
+    lines = all_lines[:max_lines - 1]
+    used_words = sum((l.split() for l in lines), [])
+    remaining = text.split()[len(used_words):]
+    last = " ".join(remaining)
+    while last and draw.textbbox((0, 0), last + "…", font=font)[2] > max_width:
+        last = last.rsplit(" ", 1)[0] if " " in last else last[:-1]
+    lines.append((last + "…") if last else "…")
+    return lines
+
+
+_HOOK_SENTENCE_END = re.compile(r'[.!?](?:\s|$)')
+
+
+def _extract_hook(text: str, max_chars: int = 120) -> str:
+    """
+    Extrai a frase de abertura do resumo pra usar como "gancho" na tela (1-2 linhas
+    em destaque), sem chamar a IA de novo — reaproveita o texto já gerado pelo
+    Groq/Gemini. Mostrar o resumo inteiro (4-6 linhas) deixava a tela um textão;
+    o resto da informação continua na narração falada, só não fica na tela.
+    """
+    if not text:
+        return ""
+    text = text.strip()
+    match = _HOOK_SENTENCE_END.search(text)
+    hook = text[:match.end()].strip() if match else text
+    # Frase de abertura muito curta (ex: só um vocativo) — inclui a próxima também
+    if len(hook) < 40:
+        rest = text[len(hook):].strip()
+        match2 = _HOOK_SENTENCE_END.search(rest)
+        if match2:
+            hook = (hook + " " + rest[:match2.end()]).strip()
+    if len(hook) > max_chars:
+        hook = hook[:max_chars].rsplit(" ", 1)[0].rstrip(",;") + "…"
+    return hook
+
+
+_HIGHLIGHT_TOKEN = re.compile(r'\b[\wÀ-ÿ]*\d[\wÀ-ÿ%]*\b')
+
+
+def _pick_highlight_token(title: str) -> str | None:
+    """
+    Encontra o primeiro trecho do título com número/porcentagem (ex: "10x", "60%",
+    "R$50") pra grifar com a cor da categoria — números chamam atenção na miniatura.
+    Retorna None se não achar nada (o título é exibido normalmente, sem grifo).
+    """
+    match = _HIGHLIGHT_TOKEN.search(title)
+    return match.group(0) if match else None
+
+
 def _render_short_frame(
     bg_arr: np.ndarray,
     title: str,
@@ -301,44 +372,54 @@ def _render_short_frame(
     max_w = SHORTS_W - padding * 2
 
     # --- Badge de categoria (topo) ---
-    f_badge = _get_font(44, bold=True, cjk=cjk_font)
+    f_badge = _get_font(46, bold=True, cjk=cjk_font)
     badge_text = f" {(category_label or category).upper()} "
     bbox = draw.textbbox((0, 0), badge_text, font=f_badge)
-    bw, bh = bbox[2] + 32, bbox[3] + 20
-    badge_y = 90
+    bw, bh = bbox[2] + 36, bbox[3] + 22
+    badge_y = 80
     draw.rounded_rectangle(
         [(padding, badge_y), (padding + bw, badge_y + bh)],
-        radius=14, fill=(r, g, b, 230),
+        radius=16, fill=(r, g, b, 245),
     )
-    draw.text((padding + 16, badge_y + 10), badge_text.strip(), font=f_badge, fill=(255, 255, 255, 255))
+    draw.text((padding + 18, badge_y + 11), badge_text.strip(), font=f_badge, fill=(255, 255, 255, 255))
 
     # --- Nome do canal (topo direito) ---
     ch_name = channel_name or CHANNEL_NAME
     f_channel = _get_font(36, cjk=cjk_font)
     ch_bbox = draw.textbbox((0, 0), ch_name, font=f_channel)
     cx = SHORTS_W - ch_bbox[2] - padding
-    draw.text((cx, badge_y + 12), ch_name, font=f_channel, fill=(220, 220, 220, 180))
+    draw.text((cx, badge_y + 14), ch_name, font=f_channel, fill=(230, 230, 230, 170))
 
-    # --- Data (abaixo do badge) ---
-    f_date = _get_font(32, cjk=cjk_font)
-    date_str = datetime.now().strftime("%d/%m/%Y")
-    draw.text((padding, badge_y + bh + 16), date_str, font=f_date, fill=(180, 180, 180, 160))
-
-    # --- Título (zona central, 40% da altura) ---
-    f_title = _get_font(72, bold=True, cjk=cjk_font)
+    # --- Título (zona central, com grifo na cor da categoria em número/% do
+    #     título, quando houver — chama mais atenção na miniatura) ---
+    f_title = _get_font(78, bold=True, cjk=cjk_font)
     title_lines = _wrap_text(draw, title, f_title, max_w)[:4]
-    title_block_h = len(title_lines) * 86
+    line_h = 92
+    title_block_h = len(title_lines) * line_h
     title_y = int(SHORTS_H * 0.40) - title_block_h // 2
 
+    # CJK (japonês/chinês/coreano) não usa espaço entre palavras — o regex de
+    # destaque pode "grudar" num trecho gigante do título. Desliga o grifo
+    # nesse caso em vez de arriscar destacar quase a frase inteira.
+    highlight = None if cjk_font else _pick_highlight_token(title)
     for i, line in enumerate(title_lines):
+        y = title_y + i * line_h
+        if highlight and highlight in line:
+            pre_w = draw.textbbox((0, 0), line.split(highlight, 1)[0], font=f_title)[2]
+            hl_w = draw.textbbox((0, 0), highlight, font=f_title)[2]
+            draw.rectangle(
+                [(padding + pre_w - 6, y + 12), (padding + pre_w + hl_w + 10, y + line_h - 10)],
+                fill=(r, g, b, 210),
+            )
+            highlight = None  # grifa só a primeira ocorrência
         # Sombra de texto
-        draw.text((padding + 3, title_y + i * 86 + 3), line, font=f_title, fill=(0, 0, 0, 180))
-        draw.text((padding, title_y + i * 86), line, font=f_title, fill=(255, 255, 255, 255))
+        draw.text((padding + 3, y + 3), line, font=f_title, fill=(0, 0, 0, 190))
+        draw.text((padding, y), line, font=f_title, fill=(255, 255, 255, 255))
 
     # --- Separador colorido ---
-    sep_y = title_y + title_block_h + 24
-    draw.rectangle([(padding, sep_y), (padding + 120, sep_y + 6)], fill=(r, g, b, 255))
-    content_y = sep_y + 30
+    sep_y = title_y + title_block_h + 26
+    draw.rectangle([(padding, sep_y), (padding + 130, sep_y + 7)], fill=(r, g, b, 255))
+    content_y = sep_y + 34
 
     # --- Badge de preço/desconto (opcional — vídeos de produto/afiliado) ---
     if price_text:
@@ -352,13 +433,16 @@ def _render_short_frame(
         draw.text((padding + 20, content_y + 12), price_text, font=f_price, fill=(255, 255, 255, 255))
         content_y += ph + 24
 
-    # --- Resumo (abaixo do separador e do badge de preço, se houver) ---
-    f_summary = _get_font(46, cjk=cjk_font)
-    summary_lines = _wrap_text(draw, summary, f_summary, max_w)[:6]
+    # --- Gancho (frase de abertura do resumo, 1-2 linhas em destaque) ---
+    # Antes mostrava o resumo inteiro (até 6 linhas) — virava um textão que
+    # competia com o título. O resto da informação continua na narração falada.
+    hook = _extract_hook(summary)
+    f_summary = _get_font(50, bold=True, cjk=cjk_font)
+    summary_lines = _wrap_hook_lines(draw, hook, f_summary, max_w)
     sum_y = content_y
     for i, line in enumerate(summary_lines):
-        draw.text((padding + 2, sum_y + i * 58 + 2), line, font=f_summary, fill=(0, 0, 0, 160))
-        draw.text((padding, sum_y + i * 58), line, font=f_summary, fill=(230, 230, 230, 220))
+        draw.text((padding + 2, sum_y + i * 62 + 2), line, font=f_summary, fill=(0, 0, 0, 180))
+        draw.text((padding, sum_y + i * 62), line, font=f_summary, fill=(255, 255, 255, 235))
 
     # --- Fonte (rodapé) ---
     f_source = _get_font(34, cjk=cjk_font)
