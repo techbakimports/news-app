@@ -324,7 +324,12 @@ def _extract_hook(text: str, max_chars: int = 120) -> str:
     return hook
 
 
-_HIGHLIGHT_TOKEN = re.compile(r'\b[\wÀ-ÿ]*\d[\wÀ-ÿ%]*\b')
+_HIGHLIGHT_TOKEN = re.compile(
+    r'\b\d+(?:[.,]\d+)?%'                 # 60%, 2,5%
+    r'|\b\d+(?:[.,]\d+)?[xX](?!\w)'       # 10x, 2X
+    r'|R\$\s?\d+(?:[.,]\d+)?'             # R$50, R$ 1.200
+    r'|\b\d+(?:[.,]\d+)?\b'               # número solto: 60, 2026, 3
+)
 
 
 def _pick_highlight_token(title: str) -> str | None:
@@ -332,6 +337,11 @@ def _pick_highlight_token(title: str) -> str | None:
     Encontra o primeiro trecho do título com número/porcentagem (ex: "10x", "60%",
     "R$50") pra grifar com a cor da categoria — números chamam atenção na miniatura.
     Retorna None se não achar nada (o título é exibido normalmente, sem grifo).
+
+    O \\b antes do dígito exige que ele seja um número "solto" (isolado por
+    espaço/pontuação) — evita grifar por engano códigos como "G1" ou "R7"
+    (sufixo de fonte que vem colado no título cru do RSS, ex: "Manchete - G1"),
+    onde o dígito está grudado numa letra e não é uma estatística de verdade.
     """
     match = _HIGHLIGHT_TOKEN.search(title)
     return match.group(0) if match else None
