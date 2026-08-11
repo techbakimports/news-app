@@ -58,3 +58,7 @@ desktop.ini
 # Logs
 *.log
 logs/
+
+# Experimentos (protótipos não integrados ao pipeline de produção)
+experiments/whiteboard/output/
+experiments/whiteboard/icons_cache/
