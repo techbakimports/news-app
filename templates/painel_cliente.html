@@ -205,6 +205,53 @@
     .hist-video   { color: #60a5fa; text-decoration: none; margin-right: .6rem; }
     .hist-video:hover { text-decoration: underline; }
     .hist-empty { color: #555; text-align: center; padding: 1.2rem; }
+
+    /* ── Status geral (banner de erro/sucesso do fluxo OAuth) ── */
+    .msg-ok  { color: #4ade80; font-size: .82rem; margin-bottom: 1rem; }
+    .msg-err { color: #f87171; font-size: .82rem; margin-bottom: 1rem; }
+
+    /* ── Canal do YouTube ─────────────────────── */
+    .youtube-card {
+      background: #181818;
+      border: 1px solid #2a2a2a;
+      border-radius: 12px;
+      padding: 1.3rem;
+      margin-bottom: 2rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+    .youtube-status { display: flex; align-items: center; gap: .75rem; }
+    .youtube-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+    .youtube-dot.connected { background: #4ade80; }
+    .youtube-dot.disconnected { background: #555; }
+    .youtube-name { font-size: 1rem; font-weight: 700; }
+    .youtube-hint { font-size: .82rem; color: #888; }
+    .btn-youtube-connect {
+      padding: .6rem 1.3rem;
+      background: #ff3b3b;
+      border: none;
+      border-radius: 8px;
+      color: #fff;
+      font-size: .88rem;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-block;
+    }
+    .btn-youtube-connect:hover { background: #e02e2e; }
+    .btn-youtube-disconnect {
+      padding: .55rem 1.1rem;
+      background: transparent;
+      border: 1px solid #444;
+      border-radius: 8px;
+      color: #ccc;
+      font-size: .85rem;
+      cursor: pointer;
+    }
+    .btn-youtube-disconnect:hover { border-color: #f87171; color: #f87171; }
   </style>
 </head>
 <body>
@@ -222,6 +269,37 @@
 </header>
 
 <main>
+
+  {% if client_msg %}
+  <p class="{{ 'msg-ok' if client_ok else 'msg-err' }}">{{ client_msg }}</p>
+  {% endif %}
+
+  <!-- ── Canal do YouTube ─────────────────────────── -->
+  <h2>Meu Canal do YouTube</h2>
+  <div class="youtube-card">
+    {% if client.youtube_connected %}
+    <div class="youtube-status">
+      <span class="youtube-dot connected"></span>
+      <div>
+        <div class="youtube-name">{{ client.youtube_channel_title }}</div>
+        <div class="youtube-hint">Vídeos gerados sobem neste canal.</div>
+      </div>
+    </div>
+    <form method="post" action="/cliente/youtube/disconnect"
+          onsubmit="return confirm('Desconectar seu canal do YouTube? Você não vai conseguir gerar Shorts até reconectar.');">
+      <button type="submit" class="btn-youtube-disconnect">Desconectar</button>
+    </form>
+    {% else %}
+    <div class="youtube-status">
+      <span class="youtube-dot disconnected"></span>
+      <div>
+        <div class="youtube-name">Nenhum canal conectado</div>
+        <div class="youtube-hint">Conecte seu canal do YouTube pra poder gerar Shorts.</div>
+      </div>
+    </div>
+    <a href="/cliente/youtube/connect" class="btn-youtube-connect">Conectar meu YouTube</a>
+    {% endif %}
+  </div>
 
   <!-- ── Nicho atual ──────────────────────────────── -->
   <h2>Meu Nicho</h2>
@@ -257,14 +335,16 @@
   <h2>Gerar Shorts</h2>
   <div class="run-section">
     <p id="run-desc">
-      {% if client.nicho %}
-      Gera Shorts sobre <strong>{{ client.nicho }}</strong> e publica no YouTube.
+      {% if not client.youtube_connected %}
+      Conecte seu canal do YouTube acima antes de gerar Shorts.
+      {% elif client.nicho %}
+      Gera Shorts sobre <strong>{{ client.nicho }}</strong> e publica no seu canal do YouTube.
       {% else %}
       Configure um nicho antes de gerar Shorts.
       {% endif %}
     </p>
     <button class="btn-run" id="btn-run" onclick="gerarShorts()"
-      {% if not client.nicho %}disabled{% endif %}>
+      {% if not client.nicho or not client.youtube_connected %}disabled{% endif %}>
       Gerar agora
     </button>
     <pre class="run-log" id="run-log"></pre>
@@ -309,6 +389,7 @@
 
 <script>
 const clientId = "{{ session.user_id }}";
+const youtubeConnected = {{ 'true' if client.youtube_connected else 'false' }};
 
 async function gerarNicho() {
   const desc = document.getElementById('nicho-desc').value.trim();
@@ -338,8 +419,15 @@ async function gerarNicho() {
       preview.classList.add('visible');
     }
 
-    document.getElementById('btn-run').disabled = false;
-    document.getElementById('run-desc').innerHTML = `Gera Shorts sobre <strong>${d.name}</strong> e publica no YouTube.`;
+    // Só reabilita "Gerar agora" se o YouTube já estiver conectado — nicho
+    // configurado sozinho não é suficiente (checagem também existe no
+    // servidor em /cliente/run, isso aqui é só refletir na UI).
+    if (youtubeConnected) {
+      document.getElementById('btn-run').disabled = false;
+      document.getElementById('run-desc').innerHTML = `Gera Shorts sobre <strong>${d.name}</strong> e publica no seu canal do YouTube.`;
+    } else {
+      document.getElementById('run-desc').innerHTML = `Conecte seu canal do YouTube acima antes de gerar Shorts.`;
+    }
 
     status.textContent = '✓ Nicho configurado: ' + d.name;
     status.className = 'gen-status';

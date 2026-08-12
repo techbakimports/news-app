@@ -23,6 +23,10 @@ async def run(config: dict) -> None:
     color_hex = config.get("color_hex", "#1E90FF")
     name = config.get("name", "Nicho")
 
+    # Canal do CLIENTE, não o do admin — sem isso o vídeo sobe no canal
+    # principal em vez do canal que o cliente conectou no painel dele.
+    token_file = os.getenv("YOUTUBE_TOKEN_FILE") or None
+
     print(f"[runner] Nicho: {name} | queries: {queries}")
 
     news = await fetch_by_custom_queries(queries, limit_per_query=3)
@@ -39,21 +43,31 @@ async def run(config: dict) -> None:
         if not item.get("resumo"):
             continue
         print(f"[runner] Gerando Short: {item.get('titulo', '?')}")
-        result = await generate_short_from_text(
-            title=item.get("titulo", name),
-            narration=item["resumo"],
-            category=name,
-            source=item.get("fonte", ""),
-            upload=True,
-            privacy="public",
-            hashtags=[name.replace(" ", ""), "shorts"],
-            playlist_key=None,
-            instagram_enabled=False,
-            youtube_enabled=True,
-            link=item.get("link", ""),
-            voice=voice,
-            display_text=None,
-        )
+        try:
+            result = await generate_short_from_text(
+                title=item.get("titulo", name),
+                narration=item["resumo"],
+                category=name,
+                source=item.get("fonte", ""),
+                upload=True,
+                privacy="public",
+                hashtags=[name.replace(" ", ""), "shorts"],
+                playlist_key=None,
+                instagram_enabled=False,
+                youtube_enabled=True,
+                link=item.get("link", ""),
+                voice=voice,
+                display_text=None,
+                token_file=token_file,
+            )
+        except RuntimeError as e:
+            # _get_credentials (uploader.py) levanta RuntimeError quando o
+            # token do cliente expirou/foi revogado e não há terminal
+            # interativo pra reautenticar (sempre o caso aqui, é subprocess).
+            # Mensagem curta e de uma linha só — vira o "last_line" que o
+            # webserver mostra pro cliente, sem vazar stack trace.
+            print(f"[runner] Token do YouTube inválido: reconecte seu canal no painel. ({e})")
+            return
         # generate_short_from_text retorna o video_id do YouTube quando o upload
         # é bem-sucedido, ou o caminho local do arquivo quando falha/desativado.
         if result and os.sep not in result and not result.lower().endswith(".mp4"):

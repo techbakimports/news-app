@@ -22,6 +22,7 @@ load_dotenv(override=True)
 
 import auth
 import db
+import youtube_oauth
 
 db.init_db()
 
@@ -495,6 +496,7 @@ async def admin_dashboard(request: Request, created: str = None, error: str = No
         })
 
     clients = db.list_clients()
+    youtube_quota_today = db.count_client_videos_today()
 
     client_msg = None
     client_ok = False
@@ -518,7 +520,8 @@ async def admin_dashboard(request: Request, created: str = None, error: str = No
     return templates.TemplateResponse(
         request=request, name="dashboard.html",
         context={"session": s, "pipelines": pipelines, "clients": clients,
-                 "client_msg": client_msg, "client_ok": client_ok},
+                 "client_msg": client_msg, "client_ok": client_ok,
+                 "youtube_quota_today": youtube_quota_today},
     )
 
 
@@ -633,6 +636,66 @@ async def tiktok_callback(request: Request, code: str = None, state: str = None,
     return RedirectResponse("/admin?tiktok_ok=1", status_code=303)
 
 
+# ── YouTube OAuth por cliente ──────────────────────────────────────────────────
+# Diferente do TikTok (só o admin conecta, 1 fluxo por vez, state numa variável
+# global), aqui N clientes podem estar conectando simultaneamente — o state
+# fica na tabela oauth_states (db.py), não numa variável de processo.
+
+@app.get("/cliente/youtube/connect")
+async def cliente_youtube_connect(request: Request):
+    s = _require_client(request)
+    if not s:
+        return RedirectResponse("/login", status_code=303)
+
+    try:
+        url, _state = youtube_oauth.get_authorization_url(s["user_id"])
+    except Exception:
+        return RedirectResponse("/cliente?error=youtube_config", status_code=303)
+
+    return RedirectResponse(url, status_code=303)
+
+
+@app.get("/youtube/callback")
+async def youtube_callback(request: Request, code: str = None, state: str = None, error: str = None):
+    s = _require_client(request)
+    if not s:
+        return RedirectResponse("/login", status_code=303)
+
+    if error:
+        return RedirectResponse("/cliente?error=youtube_denied", status_code=303)
+    if not code or not state:
+        return RedirectResponse("/cliente?error=youtube_state", status_code=303)
+
+    # Valida o state contra a tabela E contra o cliente logado agora — sem essa
+    # segunda checagem, um atacante poderia iniciar o próprio fluxo OAuth e
+    # induzir a vítima a abrir o callback dele, vinculando o canal do atacante
+    # à conta da vítima.
+    state_row = db.get_oauth_state(state)
+    if not state_row or state_row["client_id"] != s["user_id"]:
+        return RedirectResponse("/cliente?error=youtube_state", status_code=303)
+    db.delete_oauth_state(state)
+
+    try:
+        creds = youtube_oauth.exchange_code_for_token(code, s["user_id"])
+        identity = youtube_oauth.fetch_channel_identity(creds)
+        db.set_youtube_connection(s["user_id"], identity["channel_id"], identity["channel_title"])
+    except Exception:
+        return RedirectResponse("/cliente?error=youtube_token", status_code=303)
+
+    return RedirectResponse("/cliente?youtube_ok=1", status_code=303)
+
+
+@app.post("/cliente/youtube/disconnect")
+async def cliente_youtube_disconnect(request: Request):
+    s = _require_client(request)
+    if not s:
+        return RedirectResponse("/login", status_code=303)
+
+    youtube_oauth.disconnect_client(s["user_id"])
+    db.clear_youtube_connection(s["user_id"])
+    return RedirectResponse("/cliente", status_code=303)
+
+
 @app.post("/run/{pipeline}")
 async def run_pipeline(pipeline: str, request: Request):
     s = _require_admin(request)
@@ -681,7 +744,7 @@ async def _execute_pipeline(name: str):
 # ── cliente routes ─────────────────────────────────────────────────────────────
 
 @app.get("/cliente", response_class=HTMLResponse)
-async def cliente_panel(request: Request):
+async def cliente_panel(request: Request, error: str = None, youtube_ok: str = None):
     s = _require_client(request)
     if not s:
         return RedirectResponse("/login", status_code=303)
@@ -696,9 +759,24 @@ async def cliente_panel(request: Request):
 
     runs = db.list_runs(s["user_id"], limit=10)
 
+    client_msg = None
+    client_ok = False
+    if youtube_ok:
+        client_msg = f"YouTube conectado: {c.get('youtube_channel_title', '')}"
+        client_ok = True
+    elif error:
+        msgs = {
+            "youtube_config": "YouTube ainda não configurado neste servidor. Fale com o suporte.",
+            "youtube_denied": "Autorização do YouTube negada ou cancelada.",
+            "youtube_state": "Sessão de autorização do YouTube expirada — tente novamente.",
+            "youtube_token": "Falha ao conectar sua conta do YouTube. Tente novamente.",
+        }
+        client_msg = msgs.get(error, "Erro ao processar solicitação.")
+
     return templates.TemplateResponse(
         request=request, name="painel_cliente.html",
-        context={"session": s, "client": c, "config": config, "runs": runs},
+        context={"session": s, "client": c, "config": config, "runs": runs,
+                 "client_msg": client_msg, "client_ok": client_ok},
     )
 
 
@@ -736,6 +814,8 @@ async def cliente_run(request: Request):
     c = db.get_by_id(uid)
     if not c or not c.get("nicho_config"):
         return JSONResponse({"detail": "Nicho não configurado."}, status_code=400)
+    if not c.get("youtube_connected"):
+        return JSONResponse({"detail": "Conecte seu canal do YouTube antes de rodar."}, status_code=400)
 
     _client_status[uid] = {"status": "running", "message": "Iniciando..."}
     asyncio.create_task(_execute_client_pipeline(uid, c["nicho_config"]))
@@ -753,7 +833,14 @@ async def cliente_run_status(request: Request):
 async def _execute_client_pipeline(uid: str, nicho_config_json: str):
     run_id = db.create_run(uid)
     video_ids: list[str] = []
-    env = {**os.environ, "PYTHONUNBUFFERED": "1", "NICHO_CONFIG": nicho_config_json}
+    # YOUTUBE_TOKEN_FILE: correção do bug raiz — sem isso, engine/runner.py
+    # sobe todo vídeo no canal do admin em vez do canal do cliente.
+    env = {
+        **os.environ,
+        "PYTHONUNBUFFERED": "1",
+        "NICHO_CONFIG": nicho_config_json,
+        "YOUTUBE_TOKEN_FILE": youtube_oauth.token_path_for_client(uid),
+    }
     try:
         proc = await asyncio.create_subprocess_exec(
             sys.executable, "-m", "engine.runner",

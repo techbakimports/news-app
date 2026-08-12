@@ -63,6 +63,19 @@
     #token-badge.ok  { border-color: #1f6b2a; color: #4ade80; }
     #token-badge.err { border-color: #6b1f1f; color: #f87171; }
 
+    .quota-badge {
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+      font-size: .78rem;
+      padding: .25rem .7rem;
+      border-radius: 99px;
+      background: #1a1a1a;
+      border: 1px solid #333;
+      color: #999;
+    }
+    .quota-badge.warn { border-color: #7a5a1f; color: #facc15; }
+
     main { max-width: 1100px; margin: 0 auto; padding: 1.5rem 1.2rem 3rem; }
 
     h2 {
@@ -289,6 +302,11 @@
       <span id="tiktok-msg">verificando...</span>
     </div>
     <a href="/admin/tiktok/connect" class="btn-logout">Conectar TikTok</a>
+    <div class="quota-badge {{ 'warn' if youtube_quota_today >= 5 else '' }}"
+         title="Cota do YouTube é compartilhada entre admin + todos os clientes no mesmo projeto Google Cloud (~6 uploads/dia no total). Não bloqueia automaticamente.">
+      <span>▲</span>
+      <span>{{ youtube_quota_today }} uploads de clientes hoje (~6/dia no total)</span>
+    </div>
     <span>{{ session.name }}</span>
     <a href="/logout" class="btn-logout">Sair</a>
   </div>

@@ -52,7 +52,36 @@ def init_db() -> None:
                 message     TEXT DEFAULT ''
             )
         """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS oauth_states (
+                state      TEXT PRIMARY KEY,
+                client_id  TEXT NOT NULL,
+                provider   TEXT NOT NULL DEFAULT 'youtube',
+                created_at TEXT NOT NULL
+            )
+        """)
         c.commit()
+        _migrate_clients_youtube_columns(c)
+
+
+def _migrate_clients_youtube_columns(c: sqlite3.Connection) -> None:
+    """
+    Adiciona as colunas de conexão do YouTube em `clients` se ainda não
+    existirem. CREATE TABLE IF NOT EXISTS não adiciona coluna em tabela já
+    criada — por isso o ALTER TABLE condicional aqui, checado via
+    PRAGMA table_info a cada init_db() (idempotente, seguro rodar sempre).
+    """
+    existing = {row["name"] for row in c.execute("PRAGMA table_info(clients)")}
+    novas_colunas = {
+        "youtube_connected": "INTEGER DEFAULT 0",
+        "youtube_channel_id": "TEXT DEFAULT ''",
+        "youtube_channel_title": "TEXT DEFAULT ''",
+        "youtube_connected_at": "TEXT DEFAULT ''",
+    }
+    for col, tipo in novas_colunas.items():
+        if col not in existing:
+            c.execute(f"ALTER TABLE clients ADD COLUMN {col} {tipo}")
+    c.commit()
 
 
 def _hash(pw: str) -> str:
@@ -109,6 +138,28 @@ def update_nicho(cid: str, nicho: str, nicho_config: str = "{}") -> None:
         c.commit()
 
 
+# ── Conexão do canal do YouTube por cliente ────────────────────────────────────
+
+def set_youtube_connection(cid: str, channel_id: str, channel_title: str) -> None:
+    with _conn() as c:
+        c.execute(
+            "UPDATE clients SET youtube_connected = 1, youtube_channel_id = ?, "
+            "youtube_channel_title = ?, youtube_connected_at = ? WHERE id = ?",
+            (channel_id, channel_title, datetime.now().isoformat(), cid),
+        )
+        c.commit()
+
+
+def clear_youtube_connection(cid: str) -> None:
+    with _conn() as c:
+        c.execute(
+            "UPDATE clients SET youtube_connected = 0, youtube_channel_id = '', "
+            "youtube_channel_title = '', youtube_connected_at = '' WHERE id = ?",
+            (cid,),
+        )
+        c.commit()
+
+
 # ── Sessões ──────────────────────────────────────────────────────────────────
 
 def create_session_row(token: str, user_id: str, name: str, role: str, expires: str) -> None:
@@ -132,6 +183,32 @@ def delete_session_row(token: str) -> None:
         c.commit()
 
 
+# ── OAuth states (fluxo de conexão do YouTube por cliente) ────────────────────
+# Tabela em vez de variável global de processo — diferente do fluxo do TikTok
+# (só o admin conecta, 1 de cada vez), aqui N clientes podem estar no meio do
+# fluxo de conexão simultaneamente.
+
+def create_oauth_state(state: str, client_id: str, provider: str = "youtube") -> None:
+    with _conn() as c:
+        c.execute(
+            "INSERT INTO oauth_states (state, client_id, provider, created_at) VALUES (?,?,?,?)",
+            (state, client_id, provider, datetime.now().isoformat()),
+        )
+        c.commit()
+
+
+def get_oauth_state(state: str) -> dict | None:
+    with _conn() as c:
+        r = c.execute("SELECT * FROM oauth_states WHERE state = ?", (state,)).fetchone()
+        return dict(r) if r else None
+
+
+def delete_oauth_state(state: str) -> None:
+    with _conn() as c:
+        c.execute("DELETE FROM oauth_states WHERE state = ?", (state,))
+        c.commit()
+
+
 # ── Histórico de execuções (clientes) ─────────────────────────────────────────
 
 def create_run(client_id: str) -> str:
@@ -152,6 +229,28 @@ def update_run(rid: str, status: str, video_ids: list[str] | None = None, messag
             (status, datetime.now().isoformat(), json.dumps(video_ids or []), message, rid),
         )
         c.commit()
+
+
+def count_client_videos_today() -> int:
+    """
+    Soma quantos vídeos de CLIENTES (não do admin) foram publicados hoje —
+    usado só como aviso informativo de cota do YouTube (~6 uploads/dia
+    compartilhados entre admin + todos os clientes no mesmo projeto Google
+    Cloud). Não inclui os pipelines do admin, que não passam pela tabela
+    `runs` — é uma contagem parcial, só do lado do SaaS.
+    """
+    today = datetime.now().strftime("%Y-%m-%d")
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT video_ids FROM runs WHERE started_at LIKE ?", (f"{today}%",)
+        ).fetchall()
+    total = 0
+    for r in rows:
+        try:
+            total += len(json.loads(r["video_ids"] or "[]"))
+        except json.JSONDecodeError:
+            pass
+    return total
 
 
 def list_runs(client_id: str, limit: int = 10) -> list[dict]:
