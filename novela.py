@@ -192,7 +192,7 @@ def _gerar_roteiro(chars: dict, episodio: int, historico: list) -> dict | None:
             from groq import Groq
             client = Groq(api_key=groq_key)
             resp = client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
+                model="openai/gpt-oss-120b",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.85,
                 max_tokens=2000,
@@ -211,7 +211,7 @@ def _gerar_roteiro(chars: dict, episodio: int, historico: list) -> dict | None:
             from google import genai
             client = genai.Client(api_key=gemini_key)
             resp = client.models.generate_content(
-                model="gemini-2.0-flash",
+                model="gemini-flash-latest",
                 contents=prompt,
             )
             roteiro = _parse_roteiro(resp.text)

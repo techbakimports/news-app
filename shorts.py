@@ -84,7 +84,7 @@ def _generate_tags(title: str, category: str, summary: str = "") -> list[str]:
             from groq import Groq
             client = Groq(api_key=groq_key)
             resp = client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
+                model="openai/gpt-oss-120b",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.5,
             )
@@ -100,7 +100,7 @@ def _generate_tags(title: str, category: str, summary: str = "") -> list[str]:
         try:
             from google import genai
             client = genai.Client(api_key=gemini_key)
-            resp = client.models.generate_content(model="gemini-2.0-flash", contents=prompt)
+            resp = client.models.generate_content(model="gemini-flash-latest", contents=prompt)
             raw = resp.text.strip()
             tags = [t.strip().lstrip("#") for t in raw.split(",") if t.strip()]
             if tags:
@@ -163,7 +163,7 @@ def _summarize_for_short(title: str, category: str, content: str) -> tuple[str, 
             from groq import Groq
             client = Groq(api_key=groq_key)
             resp = client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
+                model="openai/gpt-oss-120b",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.7,
             )
@@ -177,7 +177,7 @@ def _summarize_for_short(title: str, category: str, content: str) -> tuple[str, 
         try:
             from google import genai
             client = genai.Client(api_key=gemini_key)
-            resp = client.models.generate_content(model="gemini-2.0-flash", contents=prompt)
+            resp = client.models.generate_content(model="gemini-flash-latest", contents=prompt)
             return _parse_response(resp.text)
         except Exception as e:
             print(f"  Gemini Shorts também falhou: {e}")

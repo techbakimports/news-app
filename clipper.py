@@ -367,7 +367,7 @@ def select_best_clips(
             try:
                 from groq import Groq
                 resp = Groq(api_key=groq_key).chat.completions.create(
-                    model="llama-3.3-70b-versatile",
+                    model="openai/gpt-oss-120b",
                     messages=[{"role": "user", "content": prompt}],
                     temperature=0.2,
                 )
@@ -379,12 +379,12 @@ def select_best_clips(
                 try:
                     from google import genai as _genai
                     return _genai.Client(api_key=gemini_key).models.generate_content(
-                        model="gemini-2.0-flash", contents=prompt
+                        model="gemini-flash-latest", contents=prompt
                     ).text
                 except ImportError:
                     import google.generativeai as _genai2
                     _genai2.configure(api_key=gemini_key)
-                    return _genai2.GenerativeModel("gemini-2.0-flash").generate_content(prompt).text
+                    return _genai2.GenerativeModel("gemini-flash-latest").generate_content(prompt).text
             except Exception as e:
                 print(f"  Gemini falhou: {e}")
         return None

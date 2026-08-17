@@ -237,9 +237,9 @@ async def _gerar_curiosidade() -> dict | None:
         try:
             from groq import Groq
             client = Groq(api_key=groq_key)
-            print(f"  [Groq] tentando llama-3.3-70b-versatile...")
+            print(f"  [Groq] tentando openai/gpt-oss-120b...")
             resp = client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
+                model="openai/gpt-oss-120b",
                 messages=[{"role": "user", "content": prompt}],
                 response_format={"type": "json_object"},
                 temperature=0.9,  # mais criativo
@@ -263,9 +263,9 @@ async def _gerar_curiosidade() -> dict | None:
         try:
             from google import genai
             client = genai.Client(api_key=gemini_key)
-            print(f"  [Gemini] tentando gemini-2.0-flash...")
+            print(f"  [Gemini] tentando gemini-flash-latest...")
             resp = client.models.generate_content(
-                model="gemini-2.0-flash",
+                model="gemini-flash-latest",
                 contents=prompt,
             )
             result = _parse_curiosidade_json(resp.text)

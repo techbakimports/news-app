@@ -129,7 +129,7 @@ def _generate_product_narration(product: dict) -> str | None:
             from groq import Groq
             client = Groq(api_key=groq_key)
             resp = client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
+                model="openai/gpt-oss-120b",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.8,
             )
@@ -144,7 +144,7 @@ def _generate_product_narration(product: dict) -> str | None:
         try:
             from google import genai as google_genai
             client = google_genai.Client(api_key=gemini_key)
-            response = client.models.generate_content(model="gemini-2.0-flash", contents=prompt)
+            response = client.models.generate_content(model="gemini-flash-latest", contents=prompt)
             text = response.text.strip()
             if text:
                 print(f"  [Gemini] narração gerada ({len(text.split())} palavras)")
