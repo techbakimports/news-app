@@ -29,6 +29,8 @@ from config import (
     AUDIO_OUTPUT_DIR,
     DRIVE_SYNC_DIR,
     SITES_CELEBRIDADES,
+    GROQ_MODEL,
+    GEMINI_MODEL,
 )
 from fetcher import (
     _resolve_google_news_url,
@@ -236,7 +238,7 @@ def _summarize_celebridade(title: str, content: str) -> tuple[str, bool] | None:
             from groq import Groq
             client = Groq(api_key=groq_key)
             resp = client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
+                model=GROQ_MODEL,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.8,
             )
@@ -254,7 +256,7 @@ def _summarize_celebridade(title: str, content: str) -> tuple[str, bool] | None:
             from google import genai as google_genai
             client = google_genai.Client(api_key=gemini_key)
             response = client.models.generate_content(
-                model="gemini-2.0-flash", contents=prompt
+                model=GEMINI_MODEL, contents=prompt
             )
             text = response.text.strip()
             if text:

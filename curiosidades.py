@@ -24,7 +24,7 @@ from dotenv import load_dotenv
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 load_dotenv()
 
-from config import AUDIO_OUTPUT_DIR
+from config import AUDIO_OUTPUT_DIR, GROQ_MODEL, GEMINI_MODEL
 
 # -- Logging -------------------------------------------------------------------
 
@@ -237,9 +237,9 @@ async def _gerar_curiosidade() -> dict | None:
         try:
             from groq import Groq
             client = Groq(api_key=groq_key)
-            print(f"  [Groq] tentando llama-3.3-70b-versatile...")
+            print(f"  [Groq] tentando openai/gpt-oss-120b...")
             resp = client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
+                model=GROQ_MODEL,
                 messages=[{"role": "user", "content": prompt}],
                 response_format={"type": "json_object"},
                 temperature=0.9,  # mais criativo
@@ -263,9 +263,9 @@ async def _gerar_curiosidade() -> dict | None:
         try:
             from google import genai
             client = genai.Client(api_key=gemini_key)
-            print(f"  [Gemini] tentando gemini-2.0-flash...")
+            print(f"  [Gemini] tentando gemini-flash-latest...")
             resp = client.models.generate_content(
-                model="gemini-2.0-flash",
+                model=GEMINI_MODEL,
                 contents=prompt,
             )
             result = _parse_curiosidade_json(resp.text)

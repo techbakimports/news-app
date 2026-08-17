@@ -5,6 +5,7 @@ Transforma descrição livre do usuário em config JSON de pipeline.
 import json
 import os
 import re
+from config import GROQ_MODEL, GEMINI_MODEL
 
 _PROMPT = """\
 Você vai configurar um pipeline de Shorts para YouTube.
@@ -32,7 +33,7 @@ def generate_nicho_config(description: str) -> dict:
         try:
             from groq import Groq
             resp = Groq(api_key=groq_key).chat.completions.create(
-                model="llama-3.3-70b-versatile",
+                model=GROQ_MODEL,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.4,
             )
@@ -45,7 +46,7 @@ def generate_nicho_config(description: str) -> dict:
         try:
             from google import genai
             client = genai.Client(api_key=gemini_key)
-            resp = client.models.generate_content(model="gemini-2.0-flash", contents=prompt)
+            resp = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
             return _parse(resp.text)
         except Exception as e:
             print(f"  [nicho_generator] Gemini falhou: {e}")

@@ -10,6 +10,7 @@ import asyncio
 import os
 from datetime import datetime
 
+from config import GROQ_MODEL, GEMINI_MODEL
 from tech_news import TECH_SITES, _fetch_tech_via_google_news
 
 
@@ -71,7 +72,7 @@ async def generate_tech_digest(on_progress=None) -> str:
             client = Groq(api_key=groq_key)
             await _progress("Resumindo com Groq...")
             resp = client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
+                model=GROQ_MODEL,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.6,
             )
@@ -87,7 +88,7 @@ async def generate_tech_digest(on_progress=None) -> str:
             from google import genai
             client = genai.Client(api_key=gemini_key)
             await _progress("Resumindo com Gemini...")
-            resp = client.models.generate_content(model="gemini-2.0-flash", contents=prompt)
+            resp = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
             return f"Tech Digest — {date_str}\n\n{resp.text.strip()}"
         except Exception as e:
             return f"Erro: Gemini também falhou — {e}"
