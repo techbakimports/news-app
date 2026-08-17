@@ -78,6 +78,7 @@ def _call_groq_batch(prompt, n):
     client = Groq(api_key=groq_key)
     response = client.chat.completions.create(
         model=GROQ_MODEL,
+        reasoning_effort="low",
         messages=[{"role": "user", "content": prompt}],
         temperature=0.7,
     )
@@ -243,6 +244,7 @@ def select_most_relevant(
             client = Groq(api_key=groq_key)
             resp = client.chat.completions.create(
                 model=GROQ_MODEL,
+                reasoning_effort="low",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.2,  # determinístico — queremos julgamento consistente
                 max_tokens=10,
@@ -357,6 +359,7 @@ def select_top_n_relevant(
             client = Groq(api_key=groq_key)
             resp = client.chat.completions.create(
                 model=GROQ_MODEL,
+                reasoning_effort="low",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.2,
                 max_tokens=30,
@@ -471,6 +474,7 @@ def summarize_news_for_short(category: str, title: str, content: str) -> tuple[s
             client = Groq(api_key=groq_key)
             resp = client.chat.completions.create(
                 model=GROQ_MODEL,
+                reasoning_effort="low",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.7,
             )

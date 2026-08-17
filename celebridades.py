@@ -239,6 +239,7 @@ def _summarize_celebridade(title: str, content: str) -> tuple[str, bool] | None:
             client = Groq(api_key=groq_key)
             resp = client.chat.completions.create(
                 model=GROQ_MODEL,
+                reasoning_effort="low",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.8,
             )

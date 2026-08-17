@@ -193,6 +193,7 @@ def _gerar_roteiro(chars: dict, episodio: int, historico: list) -> dict | None:
             client = Groq(api_key=groq_key)
             resp = client.chat.completions.create(
                 model=GROQ_MODEL,
+                reasoning_effort="low",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.85,
                 max_tokens=2000,

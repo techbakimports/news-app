@@ -166,6 +166,7 @@ def _select_most_relevant_intl(
             client = Groq(api_key=groq_key)
             resp = client.chat.completions.create(
                 model=GROQ_MODEL,
+                reasoning_effort="low",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.2,
                 max_tokens=10,
@@ -245,6 +246,7 @@ def _generate_dense_narration(title: str, content: str, category_label: str, loc
             client = Groq(api_key=groq_key)
             resp = client.chat.completions.create(
                 model=GROQ_MODEL,
+                reasoning_effort="low",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.7,
             )
@@ -342,6 +344,7 @@ def _generate_celebrity_narration(
             client = Groq(api_key=groq_key)
             resp = client.chat.completions.create(
                 model=GROQ_MODEL,
+                reasoning_effort="low",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.8,
             )

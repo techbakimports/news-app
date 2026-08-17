@@ -368,6 +368,7 @@ def select_best_clips(
                 from groq import Groq
                 resp = Groq(api_key=groq_key).chat.completions.create(
                     model=GROQ_MODEL,
+                    reasoning_effort="low",
                     messages=[{"role": "user", "content": prompt}],
                     temperature=0.2,
                 )
