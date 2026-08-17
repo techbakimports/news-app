@@ -491,7 +491,7 @@ async def _run_pipeline(chat_id: int, bot, cmd: list, descricao: str, msg=None) 
             text = texto_final
         else:
             elapsed = int(loop.time() - start_time)
-            text = f"⏳ <b>{descricao}</b> ({elapsed}s)\n\n<code>{tail}</code>"
+            text = f"⏳ <b>{descricao}</b> ({elapsed}s)\n\n<code>{html_escape(tail)}</code>"
         await _safe_edit(msg, text)
 
     env = os.environ.copy()
@@ -554,7 +554,7 @@ async def _run_pipeline(chat_id: int, bot, cmd: list, descricao: str, msg=None) 
             )
         else:
             await proc.wait()
-            tail = "\n".join(lines[-20:])[:3800]
+            tail = html_escape("\n".join(lines[-20:])[:3800])
 
             if proc.returncode == 0:
                 texto = f"✅ <b>{descricao}</b> concluído!\n\n<code>{tail}</code>"
@@ -562,7 +562,7 @@ async def _run_pipeline(chat_id: int, bot, cmd: list, descricao: str, msg=None) 
                 texto = f"❌ <b>{descricao}</b> falhou (código {proc.returncode})\n\n<code>{tail}</code>"
 
     except Exception as exc:
-        texto = f"❌ Erro interno: {exc}"
+        texto = f"❌ Erro interno: {html_escape(str(exc))}"
         if proc and proc.returncode is None:
             try:
                 proc.kill()
