@@ -2,6 +2,13 @@ import os
 
 __version__ = "5.4.0"
 
+# Modelos de LLM usados em todos os pipelines (Groq = principal, Gemini = fallback).
+# Centralizado aqui pra nunca mais precisar caçar string hardcoded em 13 arquivos
+# quando um provedor descontinua um modelo — troca só aqui (ou via .env, sem
+# precisar mexer no código nem fazer novo deploy, só reiniciar o processo).
+GROQ_MODEL = os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b")
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-flash-latest")
+
 # Configurações do App de Notícias
 
 # Fontes de notícias gerais

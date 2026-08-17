@@ -2,6 +2,7 @@ import os
 import re
 import time
 from dotenv import load_dotenv
+from config import GROQ_MODEL, GEMINI_MODEL
 
 load_dotenv()
 
@@ -68,7 +69,7 @@ def _parse_batch_response(text, n):
 
 def _call_gemini_batch(prompt, n):
     client = _get_gemini_client()
-    response = client.models.generate_content(model="gemini-flash-latest", contents=prompt)
+    response = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
     return _parse_batch_response(response.text.strip(), n)
 
 
@@ -76,7 +77,7 @@ def _call_groq_batch(prompt, n):
     from groq import Groq
     client = Groq(api_key=groq_key)
     response = client.chat.completions.create(
-        model="openai/gpt-oss-120b",
+        model=GROQ_MODEL,
         messages=[{"role": "user", "content": prompt}],
         temperature=0.7,
     )
@@ -102,7 +103,7 @@ Título: {title}
 Conteúdo: {content}
 
 Resumo (somente texto simples):"""
-        response = client.models.generate_content(model="gemini-flash-latest", contents=prompt)
+        response = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
         return response.text.strip()
     except Exception as e:
         print(f"Erro ao gerar resumo com Gemini: {e}")
@@ -241,7 +242,7 @@ def select_most_relevant(
             from groq import Groq
             client = Groq(api_key=groq_key)
             resp = client.chat.completions.create(
-                model="openai/gpt-oss-120b",
+                model=GROQ_MODEL,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.2,  # determinístico — queremos julgamento consistente
                 max_tokens=10,
@@ -258,7 +259,7 @@ def select_most_relevant(
     try:
         client = _get_gemini_client()
         if client:
-            response = client.models.generate_content(model="gemini-flash-latest", contents=prompt)
+            response = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
             idx = _parse_index(response.text)
             if idx is not None:
                 chosen = candidates[idx]
@@ -355,7 +356,7 @@ def select_top_n_relevant(
             from groq import Groq
             client = Groq(api_key=groq_key)
             resp = client.chat.completions.create(
-                model="openai/gpt-oss-120b",
+                model=GROQ_MODEL,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.2,
                 max_tokens=30,
@@ -373,7 +374,7 @@ def select_top_n_relevant(
     try:
         client = _get_gemini_client()
         if client:
-            response = client.models.generate_content(model="gemini-flash-latest", contents=prompt)
+            response = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
             indices = _parse_indices(response.text)
             if indices:
                 result = [candidates[i] for i in indices[:n]]
@@ -469,7 +470,7 @@ def summarize_news_for_short(category: str, title: str, content: str) -> tuple[s
             from groq import Groq
             client = Groq(api_key=groq_key)
             resp = client.chat.completions.create(
-                model="openai/gpt-oss-120b",
+                model=GROQ_MODEL,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.7,
             )
@@ -483,7 +484,7 @@ def summarize_news_for_short(category: str, title: str, content: str) -> tuple[s
     if gemini_key:
         try:
             client = _get_gemini_client()
-            response = client.models.generate_content(model="gemini-flash-latest", contents=prompt)
+            response = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
             narration, corrected = _parse(response.text)
             print(f"  [Gemini fallback] Short de notícia gerado ({len(narration.split())} palavras)")
             return narration, corrected

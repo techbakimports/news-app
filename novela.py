@@ -65,7 +65,7 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 
 from audio import clean_text, _stream_to_bytes
 from video import _get_font, _search_pexels, _wrap_text
-from config import AUDIO_OUTPUT_DIR, CHANNEL_NAME
+from config import AUDIO_OUTPUT_DIR, CHANNEL_NAME, GROQ_MODEL, GEMINI_MODEL
 
 # -- Constantes ----------------------------------------------------------------
 
@@ -192,7 +192,7 @@ def _gerar_roteiro(chars: dict, episodio: int, historico: list) -> dict | None:
             from groq import Groq
             client = Groq(api_key=groq_key)
             resp = client.chat.completions.create(
-                model="openai/gpt-oss-120b",
+                model=GROQ_MODEL,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.85,
                 max_tokens=2000,
@@ -211,7 +211,7 @@ def _gerar_roteiro(chars: dict, episodio: int, historico: list) -> dict | None:
             from google import genai
             client = genai.Client(api_key=gemini_key)
             resp = client.models.generate_content(
-                model="gemini-flash-latest",
+                model=GEMINI_MODEL,
                 contents=prompt,
             )
             roteiro = _parse_roteiro(resp.text)
