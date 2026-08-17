@@ -73,6 +73,7 @@ async def generate_tech_digest(on_progress=None) -> str:
             await _progress("Resumindo com Groq...")
             resp = client.chat.completions.create(
                 model=GROQ_MODEL,
+                reasoning_effort="low",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.6,
             )

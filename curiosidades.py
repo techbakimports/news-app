@@ -240,6 +240,7 @@ async def _gerar_curiosidade() -> dict | None:
             print(f"  [Groq] tentando openai/gpt-oss-120b...")
             resp = client.chat.completions.create(
                 model=GROQ_MODEL,
+                reasoning_effort="low",
                 messages=[{"role": "user", "content": prompt}],
                 response_format={"type": "json_object"},
                 temperature=0.9,  # mais criativo

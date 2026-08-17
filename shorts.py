@@ -85,6 +85,7 @@ def _generate_tags(title: str, category: str, summary: str = "") -> list[str]:
             client = Groq(api_key=groq_key)
             resp = client.chat.completions.create(
                 model=GROQ_MODEL,
+                reasoning_effort="low",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.5,
             )
@@ -164,6 +165,7 @@ def _summarize_for_short(title: str, category: str, content: str) -> tuple[str, 
             client = Groq(api_key=groq_key)
             resp = client.chat.completions.create(
                 model=GROQ_MODEL,
+                reasoning_effort="low",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.7,
             )
