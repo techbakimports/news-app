@@ -8,171 +8,463 @@
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-    body {
-      background: #0f0f0f;
-      color: #e8e8e8;
-      font-family: 'Segoe UI', system-ui, sans-serif;
-      line-height: 1.6;
+    :root {
+      --bg: #0a0a0b;
+      --bg-panel: #151517;
+      --border: #262629;
+      --red: #ff3b3b;
+      --red-dim: #ff3b3b26;
+      --text: #f2f2f2;
+      --text-dim: #9a9aa0;
+      --text-faint: #55555c;
     }
 
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+
+    /* ---------- fundo com glow ---------- */
+    .glow {
+      position: fixed;
+      top: -20%;
+      left: 50%;
+      width: 1100px;
+      height: 1100px;
+      transform: translateX(-50%);
+      background: radial-gradient(circle, rgba(255,59,59,.13) 0%, rgba(255,59,59,0) 60%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    header, .hero, section, .how, footer { position: relative; z-index: 1; }
+
+    /* ---------- header ---------- */
     header {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 1.2rem 1.5rem;
-      background: #181818;
-      border-bottom: 1px solid #2a2a2a;
+      padding: 1.1rem 1.8rem;
+      background: rgba(15,15,17,.75);
+      border-bottom: 1px solid var(--border);
+      backdrop-filter: blur(10px);
+      position: sticky;
+      top: 0;
+      z-index: 10;
     }
-    .brand { display: flex; align-items: center; gap: .6rem; }
-    .brand span { font-size: 1.5rem; }
-    .brand h1 { font-size: 1.05rem; font-weight: 700; color: #fff; }
+    .brand { display: flex; align-items: center; gap: .7rem; }
+    .brand-mark {
+      width: 34px; height: 34px;
+      display: flex; align-items: center; justify-content: center;
+      border-radius: 9px;
+      background: linear-gradient(135deg, var(--red), #b91c1c);
+      font-size: 1.1rem;
+      box-shadow: 0 4px 14px rgba(255,59,59,.35);
+    }
+    .brand h1 { font-size: 1.02rem; font-weight: 700; color: #fff; letter-spacing: -.01em; }
     .btn-login {
-      padding: .5rem 1.2rem;
-      background: #ff3b3b;
+      padding: .55rem 1.3rem;
+      background: var(--red);
       border: none;
       border-radius: 8px;
       color: #fff;
-      font-size: .88rem;
+      font-size: .85rem;
       font-weight: 600;
       text-decoration: none;
+      transition: transform .15s ease, box-shadow .15s ease;
     }
-    .btn-login:hover { background: #e02e2e; }
+    .btn-login:hover { background: #e02e2e; transform: translateY(-1px); box-shadow: 0 6px 16px rgba(255,59,59,.3); }
 
+    /* ---------- hero ---------- */
     .hero {
-      max-width: 760px;
+      max-width: 1120px;
       margin: 0 auto;
-      padding: 4rem 1.5rem 3rem;
-      text-align: center;
+      padding: 4.5rem 1.8rem 2rem;
+      display: grid;
+      grid-template-columns: 1.05fr .95fr;
+      gap: 3rem;
+      align-items: center;
     }
+    .badge-live {
+      display: inline-flex;
+      align-items: center;
+      gap: .5rem;
+      padding: .35rem .9rem;
+      background: var(--red-dim);
+      border: 1px solid rgba(255,59,59,.35);
+      border-radius: 99px;
+      font-size: .78rem;
+      font-weight: 600;
+      color: #ff8080;
+      margin-bottom: 1.4rem;
+    }
+    .badge-live .dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: #ff3b3b;
+      box-shadow: 0 0 0 0 rgba(255,59,59,.6);
+      animation: pulse 1.8s infinite;
+    }
+    @keyframes pulse {
+      0%   { box-shadow: 0 0 0 0 rgba(255,59,59,.55); }
+      70%  { box-shadow: 0 0 0 8px rgba(255,59,59,0); }
+      100% { box-shadow: 0 0 0 0 rgba(255,59,59,0); }
+    }
+
     .hero h2 {
-      font-size: 2.1rem;
+      font-size: 2.7rem;
       font-weight: 800;
       color: #fff;
-      margin-bottom: 1rem;
-      line-height: 1.25;
+      margin-bottom: 1.1rem;
+      line-height: 1.15;
+      letter-spacing: -.02em;
+    }
+    .hero h2 .accent {
+      background: linear-gradient(90deg, #ff5b5b, #ff9a5b);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
     }
     .hero p.lead {
       font-size: 1.05rem;
-      color: #aaa;
-      max-width: 560px;
-      margin: 0 auto 2rem;
+      color: var(--text-dim);
+      max-width: 480px;
+      margin-bottom: 2rem;
     }
+
+    .hero-cta { display: flex; gap: .9rem; margin-bottom: 2.2rem; flex-wrap: wrap; }
+    .btn-primary {
+      padding: .8rem 1.6rem;
+      background: var(--red);
+      border-radius: 9px;
+      color: #fff;
+      font-weight: 700;
+      font-size: .92rem;
+      text-decoration: none;
+      box-shadow: 0 8px 22px rgba(255,59,59,.28);
+      transition: transform .15s ease, box-shadow .15s ease;
+    }
+    .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 10px 26px rgba(255,59,59,.4); }
+    .btn-secondary {
+      padding: .8rem 1.6rem;
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      color: #ddd;
+      font-weight: 600;
+      font-size: .92rem;
+      text-decoration: none;
+      transition: border-color .15s ease, background .15s ease;
+    }
+    .btn-secondary:hover { border-color: #444; background: #161616; }
+
+    .stats { display: flex; gap: 2.2rem; flex-wrap: wrap; }
+    .stat b { display: block; font-size: 1.5rem; color: #fff; font-weight: 800; }
+    .stat span { font-size: .78rem; color: var(--text-faint); }
 
     .platforms {
       display: flex;
-      justify-content: center;
-      gap: .75rem;
+      gap: .6rem;
       flex-wrap: wrap;
-      margin-bottom: 3rem;
+      margin-top: 2.2rem;
     }
     .platform-pill {
-      font-size: .82rem;
-      padding: .4rem 1rem;
-      background: #181818;
-      border: 1px solid #2a2a2a;
+      font-size: .8rem;
+      padding: .45rem 1rem;
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
       border-radius: 99px;
       color: #ccc;
+      display: inline-flex;
+      align-items: center;
+      gap: .4rem;
     }
 
+    /* ---------- mockup do telefone ---------- */
+    .phone-wrap { display: flex; justify-content: center; }
+    .phone {
+      width: 250px;
+      height: 510px;
+      background: #111;
+      border: 6px solid #262629;
+      border-radius: 34px;
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 30px 70px -20px rgba(0,0,0,.7), 0 0 0 1px rgba(255,255,255,.03);
+      animation: float 5s ease-in-out infinite;
+    }
+    @keyframes float { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+    .phone::before {
+      content: '';
+      position: absolute;
+      top: 10px; left: 50%;
+      transform: translateX(-50%);
+      width: 70px; height: 16px;
+      background: #262629;
+      border-radius: 10px;
+      z-index: 3;
+    }
+    .phone-screen {
+      position: absolute; inset: 0;
+      background:
+        linear-gradient(180deg, rgba(0,0,0,.55) 0%, rgba(0,0,0,.1) 30%, rgba(0,0,0,.15) 60%, rgba(0,0,0,.75) 100%),
+        linear-gradient(160deg, #3a2a55, #1b1830 45%, #101018 100%);
+    }
+    .phone-cat {
+      position: absolute; top: 40px; left: 16px;
+      font-size: .62rem; font-weight: 700;
+      padding: .3rem .65rem;
+      background: var(--red);
+      color: #fff;
+      border-radius: 99px;
+      letter-spacing: .03em;
+    }
+    .phone-title {
+      position: absolute; bottom: 130px; left: 16px; right: 46px;
+      font-size: .92rem; font-weight: 700; color: #fff;
+      line-height: 1.3;
+    }
+    .phone-caption {
+      position: absolute; bottom: 96px; left: 16px; right: 46px;
+      font-size: .68rem; color: #d8d8d8;
+    }
+    .phone-source {
+      position: absolute; bottom: 62px; left: 16px;
+      font-size: .6rem; color: #aaa;
+    }
+    .phone-progress {
+      position: absolute; bottom: 44px; left: 16px; right: 16px;
+      height: 3px; background: rgba(255,255,255,.2); border-radius: 3px; overflow: hidden;
+    }
+    .phone-progress i {
+      display: block; height: 100%; width: 62%;
+      background: #fff; border-radius: 3px;
+    }
+    .phone-side {
+      position: absolute; right: 10px; bottom: 90px;
+      display: flex; flex-direction: column; gap: 14px; align-items: center;
+    }
+    .phone-side .ic {
+      width: 30px; height: 30px; border-radius: 50%;
+      background: rgba(255,255,255,.12);
+      display: flex; align-items: center; justify-content: center;
+      font-size: .85rem;
+      backdrop-filter: blur(4px);
+    }
+    .phone-play {
+      position: absolute; top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      width: 46px; height: 46px;
+      border-radius: 50%;
+      background: rgba(255,255,255,.14);
+      border: 1px solid rgba(255,255,255,.25);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1rem; color: #fff;
+      backdrop-filter: blur(3px);
+    }
+
+    /* ---------- seções ---------- */
     section {
-      max-width: 900px;
+      max-width: 1120px;
       margin: 0 auto;
-      padding: 0 1.5rem 3rem;
+      padding: 2.5rem 1.8rem 3.5rem;
+    }
+    .section-tag {
+      display: block;
+      text-align: center;
+      font-size: .74rem;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: #ff7a7a;
+      margin-bottom: .6rem;
     }
     section h3 {
-      font-size: 1.3rem;
+      font-size: 1.9rem;
+      font-weight: 800;
       color: #fff;
-      margin-bottom: 1.5rem;
+      margin-bottom: .6rem;
       text-align: center;
+      letter-spacing: -.01em;
+    }
+    section > p.sub {
+      text-align: center;
+      color: var(--text-dim);
+      max-width: 480px;
+      margin: 0 auto 2.6rem;
+      font-size: .95rem;
     }
 
     .grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 1rem;
+      grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+      gap: 1.1rem;
     }
     .card {
-      background: #181818;
-      border: 1px solid #2a2a2a;
-      border-radius: 12px;
-      padding: 1.3rem;
+      background: linear-gradient(160deg, var(--bg-panel), #101011);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 1.5rem;
+      transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease;
     }
-    .card .icon { font-size: 1.6rem; margin-bottom: .6rem; display: block; }
-    .card h4 { font-size: .95rem; color: #fff; margin-bottom: .4rem; }
-    .card p { font-size: .82rem; color: #999; }
-
-    .how {
-      max-width: 700px;
-      margin: 0 auto;
-      padding: 0 1.5rem 4rem;
+    .card:hover {
+      transform: translateY(-4px);
+      border-color: #3a3a3f;
+      box-shadow: 0 14px 30px -12px rgba(0,0,0,.5);
     }
-    .how h3 { font-size: 1.3rem; color: #fff; margin-bottom: 1.2rem; text-align: center; }
-    .how ol { padding-left: 1.3rem; }
-    .how li { font-size: .92rem; color: #ccc; margin-bottom: .7rem; }
+    .card .icon-box {
+      width: 42px; height: 42px;
+      border-radius: 11px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.25rem;
+      margin-bottom: 1rem;
+    }
+    .card h4 { font-size: 1rem; color: #fff; margin-bottom: .4rem; font-weight: 700; }
+    .card p { font-size: .84rem; color: var(--text-dim); }
 
+    /* ---------- como funciona ---------- */
+    .how { max-width: 780px; margin: 0 auto; padding: 0 1.8rem 4.5rem; }
+    .steps { position: relative; margin-top: 2.5rem; }
+    .steps::before {
+      content: '';
+      position: absolute;
+      left: 21px; top: 8px; bottom: 8px;
+      width: 2px;
+      background: linear-gradient(180deg, var(--red), transparent);
+      opacity: .35;
+    }
+    .step {
+      position: relative;
+      display: flex;
+      gap: 1.2rem;
+      padding-bottom: 2.1rem;
+    }
+    .step:last-child { padding-bottom: 0; }
+    .step-num {
+      flex-shrink: 0;
+      width: 44px; height: 44px;
+      border-radius: 50%;
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 800;
+      color: #ff7a7a;
+      font-size: .95rem;
+      z-index: 1;
+    }
+    .step-body h5 { color: #fff; font-size: .98rem; margin-bottom: .3rem; font-weight: 700; }
+    .step-body p { color: var(--text-dim); font-size: .88rem; max-width: 520px; }
+
+    /* ---------- footer ---------- */
     footer {
-      border-top: 1px solid #2a2a2a;
-      padding: 2rem 1.5rem;
+      border-top: 1px solid var(--border);
+      padding: 2.4rem 1.8rem;
       text-align: center;
     }
-    footer .links { margin-bottom: .8rem; }
-    footer a { color: #60a5fa; text-decoration: none; font-size: .85rem; margin: 0 .6rem; }
+    footer .links { margin-bottom: .9rem; }
+    footer a { color: #ff8080; text-decoration: none; font-size: .85rem; margin: 0 .7rem; }
     footer a:hover { text-decoration: underline; }
-    footer p { font-size: .78rem; color: #555; }
+    footer p { font-size: .78rem; color: var(--text-faint); }
+
+    /* ---------- responsivo ---------- */
+    @media (max-width: 860px) {
+      .hero { grid-template-columns: 1fr; text-align: center; padding-top: 3rem; }
+      .hero p.lead { margin: 0 auto 2rem; }
+      .hero-cta, .stats, .platforms { justify-content: center; }
+      .phone { margin-top: 1rem; }
+      .hero h2 { font-size: 2.1rem; }
+    }
   </style>
 </head>
 <body>
 
+<div class="glow"></div>
+
 <header>
   <div class="brand">
-    <span>🎬</span>
+    <span class="brand-mark">🎬</span>
     <h1>Youtuber no Automático</h1>
   </div>
   <a href="/login" class="btn-login">Entrar</a>
 </header>
 
 <div class="hero">
-  <h2>Vídeos curtos gerados por IA, publicados todos os dias</h2>
-  <p class="lead">
-    Uma plataforma que busca conteúdo relevante, escreve o roteiro, narra com voz sintética,
-    monta o vídeo vertical e publica automaticamente — sem edição manual.
-  </p>
-  <div class="platforms">
-    <span class="platform-pill">▶️ YouTube Shorts</span>
-    <span class="platform-pill">🎵 TikTok</span>
+  <div>
+    <div class="badge-live"><span class="dot"></span> Publicando agora, todos os dias</div>
+    <h2>Vídeos curtos gerados por <span class="accent">IA</span>, publicados todo dia</h2>
+    <p class="lead">
+      Uma plataforma que busca conteúdo relevante, escreve o roteiro, narra com voz sintética,
+      monta o vídeo vertical e publica automaticamente — sem edição manual.
+    </p>
+    <div class="hero-cta">
+      <a href="/login" class="btn-primary">Entrar na plataforma</a>
+      <a href="#categorias" class="btn-secondary">Ver categorias</a>
+    </div>
+    <div class="stats">
+      <div class="stat"><b>6</b><span>categorias de conteúdo</span></div>
+      <div class="stat"><b>24/7</b><span>geração automática</span></div>
+      <div class="stat"><b>0</b><span>edição manual</span></div>
+    </div>
+    <div class="platforms">
+      <span class="platform-pill">▶️ YouTube Shorts</span>
+      <span class="platform-pill">🎵 TikTok</span>
+    </div>
+  </div>
+
+  <div class="phone-wrap">
+    <div class="phone">
+      <div class="phone-screen"></div>
+      <span class="phone-cat">TECNOLOGIA</span>
+      <div class="phone-play">▶</div>
+      <div class="phone-title">OpenAI anuncia novo modelo com raciocínio avançado</div>
+      <div class="phone-caption">Resumo gerado por IA em segundos, com narração natural.</div>
+      <div class="phone-source">🔗 fonte verificada</div>
+      <div class="phone-progress"><i></i></div>
+      <div class="phone-side">
+        <span class="ic">❤️</span>
+        <span class="ic">💬</span>
+        <span class="ic">↗️</span>
+      </div>
+    </div>
   </div>
 </div>
 
-<section>
+<section id="categorias">
+  <span class="section-tag">Conteúdo</span>
   <h3>O que publicamos</h3>
+  <p class="sub">Seis categorias, cada uma com sua própria voz e estilo, geradas e publicadas sem intervenção humana.</p>
   <div class="grid">
     <div class="card">
-      <span class="icon">📰</span>
+      <div class="icon-box" style="background:#2a3a55;">📰</div>
       <h4>Notícias</h4>
       <p>Resumos diários das principais notícias do Brasil.</p>
     </div>
     <div class="card">
-      <span class="icon">🎤</span>
+      <div class="icon-box" style="background:#55302a;">🎤</div>
       <h4>Celebridades</h4>
       <p>Entretenimento e novidades do mundo dos famosos.</p>
     </div>
     <div class="card">
-      <span class="icon">💻</span>
+      <div class="icon-box" style="background:#2a4a4a;">💻</div>
       <h4>Tecnologia</h4>
       <p>As notícias mais relevantes de tech, todo dia.</p>
     </div>
     <div class="card">
-      <span class="icon">🧠</span>
+      <div class="icon-box" style="background:#4a3a2a;">🧠</div>
       <h4>Curiosidades</h4>
       <p>Fatos surpreendentes em formato rápido e direto.</p>
     </div>
     <div class="card">
-      <span class="icon">🛍️</span>
+      <div class="icon-box" style="background:#3a2a55;">🛍️</div>
       <h4>Ofertas e Achadinhos</h4>
       <p>Produtos em promoção, com divulgação de publicidade sempre que aplicável.</p>
     </div>
     <div class="card">
-      <span class="icon">🎭</span>
+      <div class="icon-box" style="background:#552a3a;">🎭</div>
       <h4>Novela IA</h4>
       <p>Episódios diários de drama roteirizados por inteligência artificial.</p>
     </div>
@@ -180,13 +472,38 @@
 </section>
 
 <div class="how">
+  <span class="section-tag">Pipeline</span>
   <h3>Como funciona</h3>
-  <ol>
-    <li>O sistema busca o conteúdo mais relevante do dia em cada categoria.</li>
-    <li>Um modelo de linguagem escreve o roteiro e a narração.</li>
-    <li>Uma voz sintética grava o áudio e o vídeo vertical é montado automaticamente.</li>
-    <li>O vídeo é publicado diretamente nas contas conectadas de YouTube e TikTok.</li>
-  </ol>
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-body">
+        <h5>Busca do conteúdo</h5>
+        <p>O sistema varre fontes confiáveis e identifica o conteúdo mais relevante do dia em cada categoria.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-body">
+        <h5>Roteiro por IA</h5>
+        <p>Um modelo de linguagem escreve o roteiro e a narração, adaptados ao tom de cada categoria.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-body">
+        <h5>Voz e montagem</h5>
+        <p>Uma voz sintética grava o áudio e o vídeo vertical é montado automaticamente, com legenda e capa.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">4</div>
+      <div class="step-body">
+        <h5>Publicação automática</h5>
+        <p>O vídeo é publicado diretamente nas contas conectadas de YouTube e TikTok, sem intervenção manual.</p>
+      </div>
+    </div>
+  </div>
 </div>
 
 <footer>

@@ -177,7 +177,7 @@ def _fetch_celebridades(limit_per_site: int = 5) -> list[dict]:
 
 # -- Resumo com tom de entretenimento/gossip ----------------------------------
 
-def _summarize_celebridade(title: str, content: str) -> tuple[str, bool] | None:
+def _summarize_celebridade(title: str, content: str) -> tuple[str, bool, str | None] | None:
     """
     Gera narração de famosos (~110-125 palavras, ~60s com CTA).
     Cadeia: Groq (primário) → Gemini (fallback) → None.
@@ -185,7 +185,12 @@ def _summarize_celebridade(title: str, content: str) -> tuple[str, bool] | None:
     Detecta se a notícia é GRAVE (morte, doença, tragédia) e ajusta o tom —
     evita soar como fofoca animada em cima de uma notícia triste.
 
-    Retorna (narracao, is_grave) ou None se nenhum LLM funcionar.
+    Também extrai o nome completo da celebridade principal (usado depois
+    pra buscar a foto real dela via wiki_photo — sem chamada extra de LLM,
+    aproveita esta mesma resposta).
+
+    Retorna (narracao, is_grave, nome_pessoa) ou None se nenhum LLM funcionar.
+    nome_pessoa é None quando não há uma pessoa clara e identificável.
     """
     groq_key   = os.getenv("GROQ_API_KEY", "")
     gemini_key = os.getenv("GEMINI_API_KEY", "")
@@ -201,7 +206,14 @@ def _summarize_celebridade(title: str, content: str) -> tuple[str, bool] | None:
         "   - 'grave': morte, doença séria, acidente, luto, internação grave, tragédia,\n"
         "     violência, problema de saúde mental ou qualquer fato triste/sério.\n"
         "   - 'leve': namoro, treta, look, fama, polêmica boba, sucesso, fofoca comum.\n\n"
-        "2. DEPOIS, escreva a narração:\n"
+        "2. SEGUNDA LINHA da resposta: nome completo (nome + sobrenome, do jeito que\n"
+        "   apareceria como título de artigo da Wikipédia) da PRINCIPAL celebridade da\n"
+        "   notícia. Formato: PESSOA: <nome completo>  OU  PESSOA: NENHUMA\n"
+        "   NUNCA responda só o primeiro nome (ex: nunca 'Virgínia' sozinho — sempre\n"
+        "   'Virginia Fonseca' completo). Use seu conhecimento pra completar o sobrenome\n"
+        "   se o texto não deixar claro. Se não houver uma pessoa central identificável,\n"
+        "   responda PESSOA: NENHUMA.\n\n"
+        "3. DEPOIS, escreva a narração:\n"
         "- NÃO leia o título. Comece direto com o fato principal — sem apresentação\n"
         "- Texto entre 110 e 125 palavras (o CTA será adicionado depois, totalizando ~60s)\n"
         "- CONTEXTO: quem está ouvindo não sabe nada — diga quem é a pessoa, o que aconteceu e por que é relevante.\n"
@@ -217,20 +229,26 @@ def _summarize_celebridade(title: str, content: str) -> tuple[str, bool] | None:
         "- NÃO use markdown, asteriscos, hashtags, símbolos ou listas\n"
         "- NÃO invente fatos — use apenas o que está no conteúdo fornecido\n"
         "- NÃO inclua o CTA de inscrição — ele será adicionado automaticamente\n\n"
-        "Responda apenas com a linha TOM seguida da narração, sem título nem formatação extra."
+        "Responda apenas com a linha TOM, a linha PESSOA e a narração, nessa ordem, "
+        "sem título nem formatação extra."
     )
 
-    def _parse(text: str) -> tuple[str, bool]:
+    def _parse(text: str) -> tuple[str, bool, str | None]:
         lines = text.strip().splitlines()
         is_grave = False
+        pessoa = None
         start = 0
         if lines and lines[0].upper().startswith("TOM:"):
             is_grave = "grave" in lines[0].lower()
             start = 1
-            while start < len(lines) and not lines[start].strip():
-                start += 1
+        if start < len(lines) and lines[start].upper().startswith("PESSOA:"):
+            valor = lines[start].split(":", 1)[1].strip()
+            pessoa = None if valor.upper() in ("", "NENHUMA", "NENHUM") else valor
+            start += 1
+        while start < len(lines) and not lines[start].strip():
+            start += 1
         narration = "\n".join(lines[start:]).strip()
-        return narration, is_grave
+        return narration, is_grave, pessoa
 
     # 1) Groq primário
     if groq_key and groq_key not in ("", "cole_sua_chave_aqui"):
@@ -245,9 +263,10 @@ def _summarize_celebridade(title: str, content: str) -> tuple[str, bool] | None:
             )
             text = resp.choices[0].message.content.strip()
             if text:
-                narration, is_grave = _parse(text)
-                print(f"  [Groq] narração gerada ({len(narration.split())} palavras, tom={'grave' if is_grave else 'leve'})")
-                return narration, is_grave
+                narration, is_grave, pessoa = _parse(text)
+                print(f"  [Groq] narração gerada ({len(narration.split())} palavras, "
+                      f"tom={'grave' if is_grave else 'leve'}, pessoa={pessoa!r})")
+                return narration, is_grave, pessoa
         except Exception as e:
             print(f"  Groq falhou: {e}. Tentando Gemini...")
 
@@ -261,9 +280,10 @@ def _summarize_celebridade(title: str, content: str) -> tuple[str, bool] | None:
             )
             text = response.text.strip()
             if text:
-                narration, is_grave = _parse(text)
-                print(f"  [Gemini] narração gerada ({len(narration.split())} palavras, tom={'grave' if is_grave else 'leve'})")
-                return narration, is_grave
+                narration, is_grave, pessoa = _parse(text)
+                print(f"  [Gemini] narração gerada ({len(narration.split())} palavras, "
+                      f"tom={'grave' if is_grave else 'leve'}, pessoa={pessoa!r})")
+                return narration, is_grave, pessoa
         except Exception as e:
             print(f"  Gemini também falhou: {e}")
 
@@ -343,8 +363,22 @@ async def run_celebridades(on_progress=None, max_shorts: int | None = None) -> l
 
         resultado = _summarize_celebridade(item["title"], item["_content"])
         if resultado:
-            narracao, is_grave = resultado
+            narracao, is_grave, pessoa = resultado
             item["narracao"] = narracao + (_CTA_GRAVE if is_grave else _CTA)
+
+            # Foto real da celebridade (Wikipedia/Wikidata) em vez de foto
+            # genérica de banco de imagens — cai pro Pexels normal se não
+            # achar (wiki_photo nunca lança exceção, só retorna None).
+            item["_photo_url"] = None
+            if pessoa:
+                try:
+                    from wiki_photo import find_person_photo
+                    item["_photo_url"] = find_person_photo(pessoa)
+                    if item["_photo_url"]:
+                        print(f"    📷 Foto real encontrada: {pessoa}")
+                except Exception as e:
+                    print(f"    wiki_photo falhou ({e}) — segue com Pexels")
+
             items_com_narracao.append(item)
         else:
             print(f"    ⚠️  Sem narração — pulando")
@@ -386,9 +420,10 @@ async def run_celebridades(on_progress=None, max_shorts: int | None = None) -> l
 
     for i, item in enumerate(items_com_narracao, 1):
         print(f"\n  ── Short {i}/{len(items_com_narracao)} ──")
-        title    = item["title"]
-        narracao = item["narracao"]
-        source   = item.get("source", "")
+        title      = item["title"]
+        narracao   = item["narracao"]
+        source     = item.get("source", "")
+        photo_url  = item.get("_photo_url")
 
         if not YOUTUBE_UPLOAD:
             try:
@@ -404,6 +439,7 @@ async def run_celebridades(on_progress=None, max_shorts: int | None = None) -> l
                     instagram_enabled=False,
                     link=item.get("link"),
                     voice="pt-BR-ThalitaNeural",
+                    image_url=photo_url,
                 )
                 print(f"  Vídeo local: {path}")
             except Exception as e:
@@ -423,6 +459,7 @@ async def run_celebridades(on_progress=None, max_shorts: int | None = None) -> l
                 instagram_enabled=False,
                 link=item.get("link"),
                 voice="pt-BR-ThalitaNeural",
+                image_url=photo_url,
             )
             if video_id:
                 uploaded_ids.append(video_id)
