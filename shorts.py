@@ -38,7 +38,7 @@ def _ffmpeg_binary() -> str:
 from fetcher import fetch_latest_news, select_unique_news
 from audio import clean_text, _stream_to_bytes
 from video import _get_font, _search_pexels, _build_pexels_query, CATEGORY_COLORS, DEFAULT_COLOR
-from config import AUDIO_OUTPUT_DIR, CHANNEL_NAME
+from config import AUDIO_OUTPUT_DIR, CHANNEL_NAME, GROQ_MODEL, GEMINI_MODEL
 
 load_dotenv()
 
@@ -90,7 +90,8 @@ def _generate_tags(title: str, category: str, summary: str = "") -> list[str]:
             from groq import Groq
             client = Groq(api_key=groq_key)
             resp = client.chat.completions.create(
-                model="openai/gpt-oss-120b",
+                model=GROQ_MODEL,
+                reasoning_effort="low",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.5,
             )
@@ -106,7 +107,7 @@ def _generate_tags(title: str, category: str, summary: str = "") -> list[str]:
         try:
             from google import genai
             client = genai.Client(api_key=gemini_key)
-            resp = client.models.generate_content(model="gemini-flash-latest", contents=prompt)
+            resp = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
             raw = resp.text.strip()
             tags = [t.strip().lstrip("#") for t in raw.split(",") if t.strip()]
             if tags:
@@ -169,7 +170,8 @@ def _summarize_for_short(title: str, category: str, content: str) -> tuple[str, 
             from groq import Groq
             client = Groq(api_key=groq_key)
             resp = client.chat.completions.create(
-                model="openai/gpt-oss-120b",
+                model=GROQ_MODEL,
+                reasoning_effort="low",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.7,
             )
@@ -183,7 +185,7 @@ def _summarize_for_short(title: str, category: str, content: str) -> tuple[str, 
         try:
             from google import genai
             client = genai.Client(api_key=gemini_key)
-            resp = client.models.generate_content(model="gemini-flash-latest", contents=prompt)
+            resp = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
             return _parse_response(resp.text)
         except Exception as e:
             print(f"  Gemini Shorts também falhou: {e}")

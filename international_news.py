@@ -30,6 +30,7 @@ import sys
 import time
 from datetime import datetime
 from dotenv import load_dotenv
+from config import GROQ_MODEL, GEMINI_MODEL
 
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 load_dotenv()
@@ -164,7 +165,8 @@ def _select_most_relevant_intl(
             from groq import Groq
             client = Groq(api_key=groq_key)
             resp = client.chat.completions.create(
-                model="openai/gpt-oss-120b",
+                model=GROQ_MODEL,
+                reasoning_effort="low",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.2,
                 max_tokens=10,
@@ -181,7 +183,7 @@ def _select_most_relevant_intl(
         try:
             from google import genai as google_genai
             client = google_genai.Client(api_key=gemini_key)
-            response = client.models.generate_content(model="gemini-flash-latest", contents=prompt)
+            response = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
             idx = _parse_index(response.text)
             if idx is not None:
                 chosen = candidates[idx]
@@ -243,7 +245,8 @@ def _generate_dense_narration(title: str, content: str, category_label: str, loc
             from groq import Groq
             client = Groq(api_key=groq_key)
             resp = client.chat.completions.create(
-                model="openai/gpt-oss-120b",
+                model=GROQ_MODEL,
+                reasoning_effort="low",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.7,
             )
@@ -258,7 +261,7 @@ def _generate_dense_narration(title: str, content: str, category_label: str, loc
         try:
             from google import genai as google_genai
             client = google_genai.Client(api_key=gemini_key)
-            response = client.models.generate_content(model="gemini-flash-latest", contents=prompt)
+            response = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
             text = response.text.strip()
             if text:
                 print(f"  [Gemini] narração densa gerada ({lang_name})")
@@ -340,7 +343,8 @@ def _generate_celebrity_narration(
             from groq import Groq
             client = Groq(api_key=groq_key)
             resp = client.chat.completions.create(
-                model="openai/gpt-oss-120b",
+                model=GROQ_MODEL,
+                reasoning_effort="low",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.8,
             )
@@ -356,7 +360,7 @@ def _generate_celebrity_narration(
         try:
             from google import genai as google_genai
             client = google_genai.Client(api_key=gemini_key)
-            response = client.models.generate_content(model="gemini-flash-latest", contents=prompt)
+            response = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
             text = response.text.strip()
             if text:
                 narration, is_grave = _parse(text)
