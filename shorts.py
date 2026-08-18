@@ -48,6 +48,12 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 
 SHORTS_W, SHORTS_H = 1080, 1920
 FPS = 30
+
+# Wikimedia (Wikipedia/Wikidata Commons) devolve 403 sem um User-Agent
+# identificando o app — política deles, descoberta testando wiki_photo.py.
+# Usado no download de image_url/logo_url (não custa nada pra outras fontes,
+# ex: fotos de produto do afiliados.py).
+_DOWNLOAD_HEADERS = {"User-Agent": "youtuber-automatico/1.0 (news-app; contato: geovane.baker89@gmail.com)"}
 MAX_WORDS_SHORT = 400      # ~170s de fala — usa o limite máximo de 3 min do Shorts
 MAX_SHORTS_PER_RUN = 3
 SHORTS_OUTPUT_DIR = "./shorts_videos"
@@ -84,7 +90,7 @@ def _generate_tags(title: str, category: str, summary: str = "") -> list[str]:
             from groq import Groq
             client = Groq(api_key=groq_key)
             resp = client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
+                model="openai/gpt-oss-120b",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.5,
             )
@@ -100,7 +106,7 @@ def _generate_tags(title: str, category: str, summary: str = "") -> list[str]:
         try:
             from google import genai
             client = genai.Client(api_key=gemini_key)
-            resp = client.models.generate_content(model="gemini-2.0-flash", contents=prompt)
+            resp = client.models.generate_content(model="gemini-flash-latest", contents=prompt)
             raw = resp.text.strip()
             tags = [t.strip().lstrip("#") for t in raw.split(",") if t.strip()]
             if tags:
@@ -163,7 +169,7 @@ def _summarize_for_short(title: str, category: str, content: str) -> tuple[str, 
             from groq import Groq
             client = Groq(api_key=groq_key)
             resp = client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
+                model="openai/gpt-oss-120b",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.7,
             )
@@ -177,7 +183,7 @@ def _summarize_for_short(title: str, category: str, content: str) -> tuple[str, 
         try:
             from google import genai
             client = genai.Client(api_key=gemini_key)
-            resp = client.models.generate_content(model="gemini-2.0-flash", contents=prompt)
+            resp = client.models.generate_content(model="gemini-flash-latest", contents=prompt)
             return _parse_response(resp.text)
         except Exception as e:
             print(f"  Gemini Shorts também falhou: {e}")
@@ -357,6 +363,7 @@ def _render_short_frame(
     cjk_font: bool = False,
     channel_name: str | None = None,
     category_label: str | None = None,
+    logo_img: "Image.Image | None" = None,
 ) -> np.ndarray:
     """Renderiza frame vertical com título, resumo e elementos de UI.
 
@@ -370,6 +377,12 @@ def _render_short_frame(
 
     price_text: se fornecido, desenha um badge de preço/desconto logo após o
     separador colorido, antes do bloco de resumo (ex: vídeos de produto/afiliado).
+
+    logo_img: se fornecido, desenha um selo/card branco com o logo real da
+    empresa/produto (ex: pipeline de Tech, via wiki_photo.find_org_logo) logo
+    após o separador. Precisa já vir composto sobre fundo OPACO (branco) —
+    quem chama (generate_short_from_text) faz isso antes de passar aqui, pra
+    não repetir a composição de transparência a cada frame.
     """
     color = CATEGORY_COLORS.get(category, DEFAULT_COLOR)
     r, g, b = color
@@ -443,6 +456,29 @@ def _render_short_frame(
         draw.text((padding + 20, content_y + 12), price_text, font=f_price, fill=(255, 255, 255, 255))
         content_y += ph + 24
 
+    # --- Selo de logo real (opcional — empresa/produto identificado via
+    #     Wikipedia/Wikidata, ex: pipeline de Tech). Card branco com padding
+    #     ao redor do logo, altura fixa — o logo entra redimensionado mantendo
+    #     proporção, nunca esticado. ---
+    if logo_img is not None:
+        badge_h = 110
+        v_pad, h_pad = 16, 28
+        lw, lh = logo_img.size
+        scale = min((badge_h - v_pad * 2) / lh, 1.0)
+        new_w, new_h = max(1, int(lw * scale)), max(1, int(lh * scale))
+        logo_resized = logo_img.resize((new_w, new_h), Image.LANCZOS).convert("RGBA")
+        card_w = min(new_w + h_pad * 2, max_w)
+        draw.rounded_rectangle(
+            [(padding, content_y), (padding + card_w, content_y + badge_h)],
+            radius=14, fill=(255, 255, 255, 235),
+        )
+        overlay.paste(
+            logo_resized,
+            (padding + (card_w - new_w) // 2, content_y + (badge_h - new_h) // 2),
+            logo_resized,
+        )
+        content_y += badge_h + 24
+
     # --- Gancho (frase de abertura do resumo, 1-2 linhas em destaque) ---
     # Antes mostrava o resumo inteiro (até 6 linhas) — virava um textão que
     # competia com o título. O resto da informação continua na narração falada.
@@ -492,6 +528,7 @@ async def generate_short_from_text(
     voice: str | None = None,
     display_text: str | None = None,
     image_url: str | None = None,
+    logo_url: str | None = None,
     price_text: str | None = None,
     link_label: str | None = None,
     extra_description: str | None = None,
@@ -525,6 +562,12 @@ async def generate_short_from_text(
                        `narration` tiver esses trechos só para a fala.
         image_url: URL de imagem direta (ex: foto de produto). Se fornecida, usa essa
                    imagem em vez de buscar no Pexels. Cai no fluxo Pexels se o download falhar.
+        logo_url: URL de um logo/imagem de empresa-produto (ex: wiki_photo.find_org_logo).
+                  Desenhado como um selo pequeno POR CIMA do fundo (Pexels ou image_url),
+                  não substitui o fundo. Trata transparência (comum em logo SVG→PNG)
+                  compondo sobre fundo branco antes de usar — sem isso, logo com fundo
+                  transparente vira um retângulo preto ao converter pra RGB direto.
+                  Se o download/composição falhar, nenhum selo é desenhado (silencioso).
         price_text: texto de preço/desconto exibido como badge na tela (ex: "R$ 49,90 → R$ 29,90 (-40%)").
                     Se None, nenhum badge de preço é desenhado.
         link_label: rótulo do bloco de link na descrição do YouTube. Se None, usa
@@ -605,7 +648,7 @@ async def generate_short_from_text(
     if image_url:
         print("  [2/3] Baixando imagem do produto...")
         try:
-            resp = requests.get(image_url, timeout=15)
+            resp = requests.get(image_url, timeout=15, headers=_DOWNLOAD_HEADERS)
             resp.raise_for_status()
             pil_img = Image.open(io.BytesIO(resp.content)).convert("RGB")
             is_product_image = True
@@ -630,10 +673,25 @@ async def generate_short_from_text(
         bg_solid = Image.new("RGB", (SHORTS_W, SHORTS_H), tuple(int(c * 0.25) for c in color))
         bg_arr = np.array(bg_solid)
 
+    # 2.5. Logo real (opcional) — baixa e compõe sobre fundo branco ANTES de
+    # renderizar, pra tratar transparência uma vez só (não a cada frame).
+    logo_img = None
+    if logo_url:
+        try:
+            resp = requests.get(logo_url, timeout=15, headers=_DOWNLOAD_HEADERS)
+            resp.raise_for_status()
+            raw_logo = Image.open(io.BytesIO(resp.content)).convert("RGBA")
+            logo_img = Image.new("RGB", raw_logo.size, (255, 255, 255))
+            logo_img.paste(raw_logo, mask=raw_logo.split()[3])
+        except Exception as e:
+            print(f"  Falha ao baixar/compor logo_url ({e}) — seguindo sem selo.")
+            logo_img = None
+
     # 3. Render + monta vídeo
     print("  [3/3] Montando vídeo vertical...")
     frame = _render_short_frame(bg_arr, title, summary, category, source, price_text=price_text,
-                                 cjk_font=cjk_font, channel_name=channel_name, category_label=category_label)
+                                 cjk_font=cjk_font, channel_name=channel_name, category_label=category_label,
+                                 logo_img=logo_img)
 
     video_clip = (
         ImageClip(frame)

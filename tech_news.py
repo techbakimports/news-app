@@ -145,6 +145,43 @@ def _fetch_tech_via_google_news(limit_per_site: int = 5) -> list[dict]:
     return unique
 
 
+def _extrair_empresa_produto(title: str, summary: str) -> str | None:
+    """
+    Extrai o nome da PRINCIPAL empresa/produto/software da notícia — usado
+    depois pra buscar o logo real via wiki_photo.find_org_logo, em vez da
+    foto genérica de banco de imagens.
+
+    Chamada Groq PEQUENA e SEPARADA de summarize_news_for_short (que é
+    compartilhada com main.py e international_news.py — não mexer nela
+    aqui). Nunca lança exceção: qualquer falha retorna None e o pipeline
+    segue normal, só sem logo nesse item.
+    """
+    groq_key = os.getenv("GROQ_API_KEY", "")
+    if not groq_key or groq_key == "cole_sua_chave_aqui":
+        return None
+    prompt = (
+        "Extraia o nome da PRINCIPAL empresa, produto ou software mencionado nesta "
+        "notícia de tecnologia, do jeito que apareceria como título de artigo da "
+        "Wikipédia (ex: 'Discord', 'Apple Inc.', 'iOS', 'Anthropic', 'PlayStation').\n"
+        f"TÍTULO: {title}\nRESUMO: {summary[:300]}\n\n"
+        "Responda APENAS o nome, sem mais nada. Se não houver uma empresa/produto "
+        "claro e identificável, responda exatamente: NENHUM"
+    )
+    try:
+        from groq import Groq
+        client = Groq(api_key=groq_key)
+        resp = client.chat.completions.create(
+            model="openai/gpt-oss-120b",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1,
+        )
+        nome = resp.choices[0].message.content.strip().strip('"')
+        return None if nome.upper() == "NENHUM" else nome
+    except Exception as e:
+        print(f"    extrair_empresa_produto falhou: {e}")
+        return None
+
+
 # -- Pipeline principal --------------------------------------------------------
 
 async def run_tech_news(on_progress=None):
@@ -212,6 +249,21 @@ async def run_tech_news(on_progress=None):
         if result:
             narracao, _ = result
             item["ai_summary"] = narracao + _CTA_TECH
+
+            # Logo real da empresa/produto (Wikipedia/Wikidata) em vez de
+            # foto genérica de banco de imagens — cai pro Pexels normal se
+            # não achar (wiki_photo nunca lança exceção, só retorna None).
+            item["_logo_url"] = None
+            nome_empresa = _extrair_empresa_produto(item["title"], item["_content"])
+            if nome_empresa:
+                try:
+                    from wiki_photo import find_org_logo
+                    item["_logo_url"] = find_org_logo(nome_empresa)
+                    if item["_logo_url"]:
+                        print(f"    🏢 Logo real encontrado: {nome_empresa}")
+                except Exception as e:
+                    print(f"    wiki_photo falhou ({e}) — segue com Pexels")
+
             items_com_resumo.append(item)
         else:
             print(f"    ⚠️  Sem narração — pulando")
@@ -263,6 +315,7 @@ async def run_tech_news(on_progress=None):
         title = item.get("title", "")
         narration = item["ai_summary"]  # garantido (filtramos acima)
         source = item.get("source", "Tech")
+        logo_url = item.get("_logo_url")
 
         if not YOUTUBE_UPLOAD:
             try:
@@ -273,6 +326,7 @@ async def run_tech_news(on_progress=None):
                     hashtags=tech_hashtags, playlist_key="tech",
                     instagram_enabled=False,
                     link=item.get("link"),
+                    logo_url=logo_url,
                 )
                 print(f"  Vídeo local: {path}")
             except Exception as e:
@@ -287,6 +341,7 @@ async def run_tech_news(on_progress=None):
                 hashtags=tech_hashtags, playlist_key="tech",
                 instagram_enabled=False,
                 link=item.get("link"),
+                logo_url=logo_url,
             )
             if video_id:
                 uploaded_ids.append(video_id)
