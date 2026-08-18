@@ -136,9 +136,10 @@ def gerar_roteiro_cenas(title: str, resumo: str) -> list[dict] | None:
     try:
         client = Groq(api_key=key)
         resp = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model="openai/gpt-oss-120b",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.5,
+            reasoning_effort="low",
             response_format={"type": "json_object"},
         )
         data = json.loads(resp.choices[0].message.content)
