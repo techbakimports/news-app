@@ -238,9 +238,18 @@ def _summarize_celebridade(title: str, content: str) -> tuple[str, bool, str | N
         is_grave = False
         pessoa = None
         start = 0
-        if lines and lines[0].upper().startswith("TOM:"):
-            is_grave = "grave" in lines[0].lower()
-            start = 1
+
+        # Tolera até 2 linhas em branco/lixo antes do TOM: (o LLM às vezes
+        # abre com uma linha vazia) — sem isso, qualquer desvio mínimo de
+        # formato faz cair no default is_grave=False, o pior caso possível
+        # (tratar notícia de morte com tom alegre).
+        probe = start
+        while probe < len(lines) and probe < start + 2 and not lines[probe].upper().startswith("TOM:"):
+            probe += 1
+        if probe < len(lines) and lines[probe].upper().startswith("TOM:"):
+            is_grave = "grave" in lines[probe].lower()
+            start = probe + 1
+
         if start < len(lines) and lines[start].upper().startswith("PESSOA:"):
             valor = lines[start].split(":", 1)[1].strip()
             pessoa = None if valor.upper() in ("", "NENHUMA", "NENHUM") else valor
@@ -248,6 +257,24 @@ def _summarize_celebridade(title: str, content: str) -> tuple[str, bool, str | N
         while start < len(lines) and not lines[start].strip():
             start += 1
         narration = "\n".join(lines[start:]).strip()
+
+        # Rede de segurança: independente do que o LLM classificou (ou se o
+        # parse acima falhou), palavras inequívocas de morte/luto no TÍTULO
+        # da notícia sempre forçam tom grave. Nunca reverte grave->leve,
+        # só empurra pra grave — o erro mais caro é o oposto (soar animado
+        # numa notícia de morte).
+        if not is_grave:
+            titulo_lower = title.lower()
+            _PALAVRAS_GRAVES = (
+                "morre", "morreu", "morto", "morta", "faleceu", "falecimento",
+                "velado", "velada", "velório", "luto", "óbito", "obito",
+                "encontrado morto", "encontrada morta", "é assassinado",
+                "é assassinada", "assassinado", "assassinada", "suicídio",
+                "suicidio", "tragédia", "tragedia", "estado grave",
+            )
+            if any(p in titulo_lower for p in _PALAVRAS_GRAVES):
+                is_grave = True
+
         return narration, is_grave, pessoa
 
     # 1) Groq primário
